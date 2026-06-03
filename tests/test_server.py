@@ -1,14 +1,16 @@
 """Testes da API HTTP do servidor (plain + mTLS real) via VaultClient."""
 
+import socket
+import ssl
 import threading
 from contextlib import contextmanager
 
 import pytest
 
-from unuser import tls
-from unuser.client.transport import ConflictError, TransportError, VaultClient
-from unuser.server.http_server import make_server
-from unuser.server.storage import BlindStorage
+from common import tls
+from client.transport import ConflictError, TransportError, VaultClient
+from server.http_server import make_server
+from server.storage import BlindStorage
 
 BID = "b:" + "ab" * 32
 
@@ -73,6 +75,20 @@ def test_blob_inexistente_e_invalido(store):
             c.get_blob("b:nao-hex")                  # 400
 
 
+def test_content_length_invalido_responde_400_sem_travar(store):
+    """Content-Length negativo não pode virar read(-1) e travar a thread (bug_018)."""
+    with running(store) as port:
+        s = socket.create_connection(("127.0.0.1", port), timeout=5)
+        s.sendall(
+            b"PUT /blob/b:" + b"ab" * 32 + b" HTTP/1.1\r\n"
+            b"Host: x\r\nContent-Length: -1\r\nConnection: close\r\n\r\n"
+        )
+        s.settimeout(5)                              # se travasse, estouraria aqui
+        status_line = s.recv(4096).split(b"\r\n", 1)[0]
+        s.close()
+        assert b"400" in status_line
+
+
 # --- mTLS --------------------------------------------------------------------
 
 @pytest.fixture
@@ -101,7 +117,7 @@ def test_mtls_cliente_fora_da_allowlist_e_rejeitado(store, pki):
     with running(store, ssl_context=sctx) as port:
         cctx = tls.client_context(pki["bad_crt"], pki["bad_key"], pki["s_crt"])
         c = VaultClient("127.0.0.1", port, ssl_context=cctx)
-        with pytest.raises(Exception):              # handshake falha (cert não confiável)
+        with pytest.raises((ssl.SSLError, OSError)):   # handshake falha (cert não confiável)
             c.health()
 
 

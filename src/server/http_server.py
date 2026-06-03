@@ -26,6 +26,11 @@ _BLOB_PREFIX = "/blob/"
 _H_VERSION = "X-Unuser-Version"
 _H_EXPECTED = "X-Unuser-Expected-Version"
 _H_NEW = "X-Unuser-New-Version"
+MAX_BODY = 256 * 1024 * 1024   # teto de corpo (anti-DoS); blobs reais são bem menores
+
+
+class _BodyError(Exception):
+    """Content-Length ausente/negativo/grande demais — já respondido com 400."""
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -48,7 +53,19 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _body(self) -> bytes:
-        n = int(self.headers.get("Content-Length", 0))
+        raw = self.headers.get("Content-Length")
+        if raw is None:
+            return b""
+        try:
+            n = int(raw)
+        except ValueError:
+            n = -1
+        # Negativo viraria read(-1) = ler até EOF (trava a thread em keep-alive);
+        # gigante aloca/bloqueia. Recusa e fecha a conexão agora não-confiável.
+        if n < 0 or n > MAX_BODY:
+            self._send(400, b"content-length invalido", {"Connection": "close"})
+            self.close_connection = True
+            raise _BodyError
         return self.rfile.read(n) if n else b""
 
     def _block_id(self) -> str:
@@ -85,7 +102,10 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(404)
 
     def do_PUT(self) -> None:
-        body = self._body()
+        try:
+            body = self._body()
+        except _BodyError:
+            return
         if self.path == "/manifest":
             try:
                 expected = int(self.headers[_H_EXPECTED])
@@ -112,7 +132,7 @@ def make_server(storage: BlindStorage, host: str = "127.0.0.1", port: int = 0,
                 ssl_context: ssl.SSLContext | None = None) -> ThreadingHTTPServer:
     """Cria o servidor. ``port=0`` escolhe uma porta livre (útil em testes).
 
-    Passe ``ssl_context`` (de :func:`unuser.tls.server_context`) para habilitar mTLS.
+    Passe ``ssl_context`` (de :func:`common.tls.server_context`) para habilitar mTLS.
     """
     httpd = ThreadingHTTPServer((host, port), _Handler)
     httpd.storage = storage  # type: ignore[attr-defined]

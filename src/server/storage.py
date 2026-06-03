@@ -43,7 +43,10 @@ class ConflictError(StorageError):
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
-    tmp = path.with_name(path.name + ".tmp")
+    # Sufixo único por escrita: sob ThreadingHTTPServer, dois PUTs do MESMO block_id
+    # (dedup por conteúdo) escreveriam no mesmo .tmp e corromperiam um ao outro. Cada
+    # escritor publica seu próprio inode via os.replace; o "perdedor" é idempotente.
+    tmp = path.with_name(f"{path.name}.{os.urandom(8).hex()}.tmp")
     with open(tmp, "wb") as f:
         f.write(data)
         f.flush()

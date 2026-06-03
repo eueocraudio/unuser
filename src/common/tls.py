@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import hashlib
+import os
 import ssl
 from pathlib import Path
 
@@ -42,13 +43,19 @@ def generate_self_signed(common_name: str, out_dir, name: str) -> tuple[Path, Pa
     cert_path = out / f"{name}.crt"
     key_path = out / f"{name}.key"
     cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    key_path.write_bytes(
-        key.private_bytes(
-            serialization.Encoding.PEM,
-            serialization.PrivateFormat.PKCS8,
-            serialization.NoEncryption(),
-        )
+    # Chave privada = identidade do dispositivo no mTLS (§4.6). Grava 0o600 de forma
+    # atômica (sem janela 0o644) — qualquer usuário local que a lesse poderia se passar
+    # pelo dispositivo no cofre.
+    key_pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
     )
+    fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, key_pem)
+    finally:
+        os.close(fd)
     return cert_path, key_path
 
 
