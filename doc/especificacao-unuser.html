@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>unuser — Especificação Técnica</title>
+<style>
+  @page { size: A4; margin: 2cm 2cm; }
+  body {
+    font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+    font-size: 11pt; line-height: 1.45; color: #1a1a1a; max-width: 800px; margin: 0 auto;
+  }
+  h1 { font-size: 24pt; color: #14324b; margin: 0 0 2pt 0; }
+  h2 { font-size: 15pt; color: #14324b; border-bottom: 2px solid #14324b;
+       padding-bottom: 3pt; margin-top: 22pt; }
+  h3 { font-size: 12.5pt; color: #2a5d7c; margin-top: 16pt; margin-bottom: 4pt; }
+  .sub { color: #6a6a6a; font-size: 11pt; margin: 0 0 4pt 0; }
+  .meta { color: #6a6a6a; font-size: 9.5pt; margin-bottom: 10pt; }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 10pt; }
+  th, td { border: 1px solid #c9d4dc; padding: 5pt 8pt; text-align: left; vertical-align: top; }
+  th { background: #eef3f7; color: #14324b; }
+  code, pre { font-family: "Liberation Mono", "DejaVu Sans Mono", monospace; }
+  code { background: #f1f3f5; padding: 1px 4px; border-radius: 3px; font-size: 9.5pt; }
+  pre { background: #f6f8fa; border: 1px solid #dde3e8; border-radius: 5px;
+        padding: 9pt 11pt; font-size: 9pt; line-height: 1.35; overflow-x: auto; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+         margin-right: 5px; vertical-align: middle; }
+  .g{background:#2e9e44} .y{background:#e0a106} .b{background:#2f6fd0}
+  .r{background:#d23a3a} .p{background:#7a3fb0} .k{background:#8a8a8a}
+  ul { margin: 4pt 0 4pt 0; padding-left: 20pt; }
+  li { margin: 2pt 0; }
+  .note { background: #fff8e6; border-left: 4px solid #e0a106; padding: 7pt 11pt; margin: 10pt 0; }
+  .danger { background: #fdecec; border-left: 4px solid #d23a3a; padding: 7pt 11pt; margin: 10pt 0; }
+  .footer { margin-top: 26pt; border-top: 1px solid #ccc; padding-top: 6pt;
+            color: #888; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+
+<h1>unuser</h1>
+<p class="sub">UniqueUser — ambiente de sincronização hierárquica com cofre cifrado</p>
+<p class="meta">Especificação técnica · v0.4 · 03/06/2026</p>
+
+<h2>1. Objetivo</h2>
+<p>
+O <strong>unuser</strong> sincroniza documentos e arquivos de trabalho entre várias
+máquinas Debian (mesma versão), substituindo o fluxo atual de cópia manual por pendrive.
+A sincronização é <strong>manual e controlada pelo usuário</strong> através de um aplicativo
+gráfico inspirado no <strong>Windows XP Explorer</strong>, e todo o conteúdo é protegido por
+criptografia ponta a ponta: o servidor central é um <strong>cofre cego</strong> que nunca
+tem acesso ao conteúdo, aos nomes dos arquivos nem à estrutura de pastas.
+</p>
+
+<h2>2. Conceitos</h2>
+<table>
+  <tr><th>Termo</th><th>Definição</th></tr>
+  <tr><td><strong>Cofre</strong></td><td>O conjunto de arquivos sincronizados, protegido por passphrase + keyfile.</td></tr>
+  <tr><td><strong>root key</strong></td><td>Chave-mestra derivada no cliente; nunca sai da máquina nem chega ao servidor.</td></tr>
+  <tr><td><strong>Manifesto</strong></td><td>Índice cifrado de um arquivo: metadados, a FK embrulhada e, por versão, o carimbo de data/hora (até o segundo), o hash e as referências aos blocos.</td></tr>
+  <tr><td><strong>Blob</strong></td><td>Bloco de conteúdo cifrado e endereçado por identificador opaco, armazenado no servidor.</td></tr>
+  <tr><td><strong>Cofre cego</strong></td><td>O servidor: guarda apenas blobs e manifestos cifrados; não consegue ler nada.</td></tr>
+  <tr><td><strong>Onion Service</strong></td><td>Serviço oculto do Tor (v3) pelo qual o servidor é alcançado fora da LAN.</td></tr>
+  <tr><td><strong>FK (chave de arquivo)</strong></td><td>Chave aleatória exclusiva de cada arquivo, usada para cifrar o conteúdo dele.</td></tr>
+  <tr><td><strong>KEK</strong></td><td>Chave-mestra do usuário (derivada de passphrase+keyfile) que "embrulha" as FKs. É a "chave geral".</td></tr>
+</table>
+
+<h2>3. Decisões de arquitetura</h2>
+<table>
+  <tr><th>Item</th><th>Decisão</th></tr>
+  <tr><td>App cliente</td><td>GUI em <strong>PySide6/Qt</strong>, visual inspirado no <strong>Windows XP Explorer (tema Luna)</strong>: painel de tarefas lateral, árvore de pastas, status e ações por arquivo.</td></tr>
+  <tr><td>Servidor</td><td>Cofre cego (<em>zero-knowledge</em>): blobs + manifesto cifrados + histórico de versões.</td></tr>
+  <tr><td>Linguagem</td><td>Python 3.13.</td></tr>
+  <tr><td>Topologia</td><td>Hub-and-spoke: servidor central sempre ligado (fonte da verdade) + clientes.</td></tr>
+  <tr><td>Rede</td><td>Mista. Na LAN: conexão direta por IP. Fora da LAN: <strong>Tor</strong>.</td></tr>
+  <tr><td>Conexão</td><td><strong>IP direto ou Tor — selecionável na própria interface.</strong></td></tr>
+  <tr><td>Trânsito</td><td>mTLS (TLS mútuo). Fora da LAN, o mTLS roda sobre o Onion Service do Tor. <strong>Sem VPN.</strong></td></tr>
+  <tr><td>Repouso</td><td>LUKS já existe no SO de cada máquina (fora do escopo do unuser). No servidor, o conteúdo permanece cifrado pelas chaves do cliente.</td></tr>
+  <tr><td>Sincronização</td><td>Manual, disparada ao abrir o cofre e por botão "atualizar". Sem daemon de watch.</td></tr>
+</table>
+
+<h2>4. Modelo de segurança</h2>
+
+<h3>4.1 Hierarquia de chaves (criptografia em envelope)</h3>
+<p>O cofre só abre com <strong>passphrase + keyfile</strong> (os dois são obrigatórios). O keyfile
+é um arquivo de alta entropia que pode morar no pendrive — assim o pendrive deixa de carregar
+os arquivos e passa a carregar apenas a chave. Cada arquivo é cifrado com uma <strong>chave aleatória
+própria (FK)</strong>; a chave-mestra do usuário (<strong>KEK</strong>) apenas <em>embrulha</em> essas FKs.</p>
+<pre>passphrase ──Argon2id(salt)──►  kp
+keyfile (alta entropia)      ──►  kf
+root_key = HKDF-SHA256( ikm = kp ‖ kf )
+
+root_key ──HKDF(label)──►  KEK           (embrulha as chaves de arquivo)
+                           name_key      (cifra nomes e metadados no manifesto)
+                           manifest_key  (cifra o manifesto)
+
+Por arquivo:
+  FK = aleatória de 256 bits             (chave de conteúdo daquele arquivo)
+  blocos     = AES-256-GCM( FK,  bloco )
+  wrapped_FK = AES-256-GCM( KEK, FK )     ◄── guardada no manifesto do arquivo</pre>
+<ul>
+  <li><strong>Argon2id</strong> para derivar a chave da senha (resistente a força bruta por GPU).</li>
+  <li><strong>HKDF-SHA256</strong> para separar subchaves por finalidade.</li>
+  <li><strong>AES-256-GCM</strong> para cifrar conteúdo, FKs e metadados (autenticado; nonce aleatório por operação).</li>
+  <li><strong>FK por arquivo:</strong> o conteúdo nunca é cifrado direto com a chave-mestra — só com a FK aleatória, e a FK fica guardada embrulhada pela KEK no manifesto.</li>
+  <li><strong>Deduplicação:</strong> mantida <em>dentro de um mesmo arquivo</em> (blocos repetidos não se duplicam). Como cada arquivo tem FK própria, blocos idênticos <em>entre arquivos diferentes</em> não deduplicam — custo aceito em troca da rotação barata.</li>
+</ul>
+
+<h3>4.2 Rotação da chave-mestra (sem recriptografar arquivos)</h3>
+<p>Este é o motivo do envelope. Trocar a "chave geral" (nova passphrase e/ou keyfile) gera uma nova
+<code>root_key</code> e, portanto, uma nova <code>KEK</code>. A rotação então:</p>
+<ol>
+  <li>desembrulha cada <code>FK</code> com a <strong>KEK antiga</strong>;</li>
+  <li>re-embrulha cada <code>FK</code> com a <strong>KEK nova</strong>;</li>
+  <li>reescreve apenas os manifestos (material de chave, pequeno) e incrementa o <em>epoch</em> da KEK.</li>
+</ol>
+<p>Os <strong>blocos de conteúdo — o volume pesado — não são tocados</strong>. A rotação é rápida e barata
+mesmo com muitos GB no cofre. Benefícios adicionais: comprometer uma FK expõe apenas <em>um</em> arquivo
+(raio de dano limitado) e abre caminho para compartilhar/revogar um arquivo isolado no futuro.</p>
+
+<div class="danger">
+  <strong>Regra inviolável:</strong> a passphrase e o keyfile <strong>nunca</strong> são gravados em
+  arquivo de configuração (nem no <code>.env</code>). A passphrase é digitada a cada sessão; o keyfile
+  é um arquivo separado, idealmente em mídia removível. Gravá-los anularia a criptografia ponta a ponta.
+</div>
+
+<h3>4.3 Material de chave: sempre trafega, sempre cifrado</h3>
+<p>Os <strong>manifestos</strong> carregam os metadados (nomes, caminhos), a <strong>FK embrulhada</strong>
+(<code>wrapped_FK</code>) e, <strong>por versão</strong>, o carimbo de data/hora, o hash e as referências aos
+blocos. Eles são versionados no servidor e transmitidos normalmente em <em>toda</em> sincronização — o que é
+seguro, porque estão cifrados com a <strong>sua</strong> chave (KEK / manifest_key), que o servidor nunca possui.</p>
+<p>Forma lógica do manifesto (em claro no cliente; cifrado no servidor):</p>
+<pre>{
+  "path": "Documentos/contrato.odt",
+  "wrapped_FK": "&lt;FK embrulhada pela KEK&gt;",
+  "versions": [
+    {
+      "ts":     "2026-06-03 16:42:07",   // data/hora/min/seg — desempate
+      "hash":   "blake3:ab12…",          // detecta modificacao
+      "size":   184320,
+      "blocks": ["b:9f3…", "b:1c7…"]     // referencias aos blocos
+    },
+    { "ts": "2026-06-01 09:15:33", "hash": "blake3:77ef…", "size": 180224,
+      "blocks": ["b:9f3…", "b:0aa…"] }
+  ]
+}</pre>
+<ul>
+  <li><strong>Desempate por <code>ts</code>:</strong> em conflito, a versão com carimbo de data/hora mais
+      recente prevalece (pressupõe relógios sincronizados por NTP — todas as máquinas são Debian).</li>
+  <li><strong>Detecção de modificação por <code>hash</code>:</strong> o status de um arquivo vem de comparar
+      o hash atual local com o último hash registrado no histórico de versões do manifesto.</li>
+  <li><strong>Mapeamento bloco ↔ arquivo ↔ versão vive só dentro do manifesto cifrado.</strong> O servidor
+      guarda os blocos como blobs opacos e não sabe a qual arquivo ou versão cada um pertence.</li>
+  <li>O servidor guarda e transporta <strong>dois</strong> tipos de dado, ambos cifrados: o conteúdo
+      (blocos cifrados pela FK) e o material de chave + índice (manifestos cifrados pela KEK). Cego para os dois.</li>
+  <li>Para abrir um arquivo, o cliente baixa o manifesto, <strong>desembrulha a FK com a KEK local</strong>
+      e só então decifra os blocos.</li>
+  <li>A <strong>passphrase e o keyfile</strong> (que geram a KEK) <strong>nunca trafegam</strong> — são a única
+      peça que jamais chega ao servidor.</li>
+</ul>
+
+<h3>4.4 Estrutura do manifesto</h3>
+<p>O manifesto tem dois níveis: um <strong>cabeçalho de cofre</strong> (global) e um <strong>manifesto
+por arquivo</strong>. Tudo abaixo está em claro apenas no cliente; no servidor é gravado cifrado.</p>
+
+<p><strong>Cabeçalho do cofre</strong> (um só):</p>
+<table>
+  <tr><th>Campo</th><th>Para quê</th></tr>
+  <tr><td><code>format_version</code></td><td>Versão do formato do manifesto (evolução futura).</td></tr>
+  <tr><td><code>vault_id</code></td><td>Identificador opaco do cofre.</td></tr>
+  <tr><td><code>argon2_salt</code></td><td>Salt para derivar a chave da passphrase.</td></tr>
+  <tr><td><code>kek_epoch</code></td><td>Geração atual da KEK — base da rotação (4.2).</td></tr>
+  <tr><td><code>vault_version</code></td><td>Contador global; sobe a cada alteração. É o valor do <em>compare-and-swap</em> de concorrência no servidor.</td></tr>
+  <tr><td>índice</td><td>Lista dos manifestos de arquivo (<code>file_id</code> → manifesto).</td></tr>
+</table>
+
+<p><strong>Manifesto por arquivo</strong>:</p>
+<table>
+  <tr><th>Campo</th><th>Para quê</th></tr>
+  <tr><td><code>file_id</code></td><td>Id estável e opaco do arquivo.</td></tr>
+  <tr><td><code>path</code></td><td>Caminho relativo dentro do cofre.</td></tr>
+  <tr><td><code>mode</code> <em>(opcional)</em></td><td>Permissões POSIX, para restaurar idênticas na outra máquina.</td></tr>
+  <tr><td><code>wrapped_FK</code></td><td>A chave do arquivo, embrulhada pela KEK.</td></tr>
+  <tr><td><code>wrapped_by_epoch</code></td><td>Qual geração da KEK embrulhou a FK (casa com <code>kek_epoch</code> na rotação).</td></tr>
+  <tr><td><code>versions[]</code></td><td>Histórico de versões (abaixo).</td></tr>
+</table>
+
+<p><strong>Cada versão</strong> (<code>versions[]</code>):</p>
+<table>
+  <tr><th>Campo</th><th>Para quê</th></tr>
+  <tr><td><code>ts</code></td><td>Data/hora/min/seg — critério de <strong>desempate</strong>.</td></tr>
+  <tr><td><code>hash</code></td><td>BLAKE3 do conteúdo — <strong>detecção de modificação</strong> e integridade.</td></tr>
+  <tr><td><code>size</code></td><td>Tamanho em bytes.</td></tr>
+  <tr><td><code>blocks</code></td><td>Lista <strong>ordenada</strong> de <code>block_id</code> que compõem a versão.</td></tr>
+  <tr><td><code>device</code></td><td>Máquina que criou a versão (rotula conflitos, ajuda no histórico).</td></tr>
+  <tr><td><code>deleted</code></td><td>Marcador de <strong>tombstone</strong>: apagar vira uma versão "deletada" (some para todos, mas o histórico fica até a limpeza manual).</td></tr>
+</table>
+
+<p>Exemplo consolidado (forma lógica, em claro no cliente):</p>
+<pre>{
+  "file_id": "f:7c1a…",
+  "path": "Documentos/contrato.odt",
+  "mode": "0644",
+  "wrapped_FK": "&lt;FK embrulhada pela KEK&gt;",
+  "wrapped_by_epoch": 3,
+  "versions": [
+    { "ts": "2026-06-03 16:42:07", "hash": "blake3:ab12…", "size": 184320,
+      "device": "notebook-casa", "blocks": ["b:9f3…", "b:1c7…"] },
+    { "ts": "2026-06-01 09:15:33", "hash": "blake3:77ef…", "size": 180224,
+      "device": "pc-trabalho",   "blocks": ["b:9f3…", "b:0aa…"] },
+    { "ts": "2026-06-04 10:02:11", "deleted": true, "device": "pc-trabalho" }
+  ]
+}</pre>
+<div class="note">
+  O <code>block_id</code> é o HMAC do bloco em claro (deduplicação dentro do arquivo). O <em>nonce</em> e a
+  <em>tag</em> de cada bloco ficam no próprio blob cifrado no servidor, não no manifesto.
+</div>
+
+<h3>4.5 O que o servidor NÃO vê</h3>
+<ul>
+  <li>Conteúdo dos arquivos (só blobs cifrados).</li>
+  <li>Nomes de arquivos e estrutura de diretórios (vão dentro do manifesto cifrado).</li>
+  <li>A passphrase, o keyfile ou a root_key.</li>
+</ul>
+<p>O servidor enxerga apenas: identificadores opacos de blob, bytes cifrados, o blob do manifesto
+e um número de versão monotônico usado para detectar concorrência.</p>
+
+<h3>4.6 Acesso remoto por Tor</h3>
+<ul>
+  <li>O <code>unuserd</code> roda como <strong>Onion Service v3</strong> (serviço oculto do Tor).</li>
+  <li>O cliente conecta via <strong>proxy SOCKS5 do Tor</strong> (<code>127.0.0.1:9050</code>) ao endereço <code>&lt;...&gt;.onion:porta</code>.</li>
+  <li>O endereço <code>.onion</code> é <strong>autoautenticável</strong> (derivado da chave pública do servidor) → protege contra MITM mesmo sem autoridade certificadora. O <strong>mTLS continua</strong> para autenticar o cliente.</li>
+  <li><strong>Resolve o NAT sem IP público nem port-forward</strong> — ideal para máquinas atrás de roteador.</li>
+  <li>Custo: exige o pacote <code>tor</code> instalado; maior latência — aceitável, pois a sync é manual e transfere só os blocos alterados.</li>
+  <li><strong>VPN/WireGuard: descartado.</strong> Tor é o único mecanismo de acesso fora da LAN.</li>
+</ul>
+
+<h2>5. Interface visual (Windows XP Explorer / Luna)</h2>
+<p>O app reproduz a identidade do Explorer do Windows XP, implementada com <strong>Qt Style Sheets (QSS)</strong>
+no PySide6. Elementos:</p>
+<ul>
+  <li><strong>Painel de tarefas à esquerda</strong>, com seções recolhíveis de cabeçalho em gradiente azul: <em>Tarefas de arquivo e pasta</em>, <em>Outros locais</em>, <em>Detalhes</em>.</li>
+  <li><strong>Árvore de pastas</strong> + área de itens com ícones grandes.</li>
+  <li>Cromagem azul/verde do tema <strong>Luna</strong> (barras e cabeçalhos arredondados).</li>
+  <li>As 6 cores de status e as 4 ações aparecem no painel lateral e no menu de contexto, no estilo XP.</li>
+</ul>
+<div class="note">
+  A reprodução do visual é estética/homenagem. <strong>Não</strong> serão usados ícones ou imagens
+  proprietários da Microsoft — equivalentes próprios serão recriados.
+</div>
+
+<h2>6. Componentes</h2>
+<table>
+  <tr><th>Binário</th><th>Onde roda</th><th>Papel</th></tr>
+  <tr><td><code>unuser</code> (GUI)</td><td>Cada máquina cliente</td><td>App de cofre estilo XP Explorer. Destrava com passphrase+keyfile, compara local × servidor, mostra status e executa as ações.</td></tr>
+  <tr><td><code>unuserd</code></td><td>Nó central (sempre ligado)</td><td>Cofre cego. Armazena blobs + manifesto cifrados, mantém histórico de versões, autentica clientes por mTLS, publica Onion Service para acesso via Tor.</td></tr>
+</table>
+
+<h2>7. Fluxo do cliente</h2>
+<ol>
+  <li><strong>Destravar:</strong> abrir o app, informar passphrase + keyfile → deriva a <code>root_key</code>.</li>
+  <li><strong>Carregar config:</strong> lê o <code>.env</code> (conexão/flags) e o JSON com os diretórios padrão (recursivos) + itens avulsos marcados.</li>
+  <li><strong>Conectar:</strong> usa o modo escolhido na interface (IP direto ou Tor).</li>
+  <li><strong>Comparar:</strong> faz o scan local (hash dos arquivos, respeitando o <code>.unuserignore</code>) e busca o manifesto cifrado do servidor.</li>
+  <li><strong>Exibir:</strong> mostra a árvore tipo Explorer, cada arquivo com seu status.</li>
+  <li><strong>Decidir:</strong> por arquivo (ou seleção múltipla) o usuário escolhe a ação.</li>
+  <li><strong>Executar:</strong> Send/Receive aplicam as ações marcadas.</li>
+</ol>
+
+<h3>7.1 Status por arquivo</h3>
+<table>
+  <tr><th>Status</th><th>Significado</th></tr>
+  <tr><td><span class="dot g"></span>Em sincronia</td><td>Local e servidor idênticos.</td></tr>
+  <tr><td><span class="dot y"></span>Modificado no local</td><td>O arquivo local difere da versão do servidor.</td></tr>
+  <tr><td><span class="dot b"></span>Modificado no servidor</td><td>O servidor tem uma versão mais nova que a local.</td></tr>
+  <tr><td><span class="dot r"></span>Conflito</td><td>Mudou nos dois lados desde a última sincronização.</td></tr>
+  <tr><td><span class="dot p"></span>Só local</td><td>Existe na máquina, nunca foi enviado.</td></tr>
+  <tr><td><span class="dot k"></span>Só no servidor</td><td>Existe no cofre, ainda não foi baixado.</td></tr>
+</table>
+
+<h3>7.2 Ações por arquivo</h3>
+<table>
+  <tr><th>#</th><th>Ação</th><th>Efeito</th></tr>
+  <tr><td>1</td><td>Substituir no servidor</td><td>Envia a versão local, sobrescrevendo a do servidor.</td></tr>
+  <tr><td>2</td><td>Substituir no local</td><td>Baixa a versão do servidor, sobrescrevendo a local.</td></tr>
+  <tr><td>3</td><td>Versionar</td><td>Guarda a versão anterior no histórico em vez de sobrescrever.</td></tr>
+  <tr><td>4</td><td>Ignorar</td><td>Não faz nada neste ciclo.</td></tr>
+</table>
+
+<h2>8. Regras de negócio</h2>
+<ul>
+  <li><strong>Diretórios são recursivos:</strong> todo o conteúdo abaixo de uma raiz do JSON entra no cofre.</li>
+  <li><strong>Renomear</strong> = criar arquivo novo + apagar o antigo (não há tratamento especial de rename).</li>
+  <li><strong>Apagar</strong> apaga para todos, inclusive no servidor — mas a versão anterior fica preservada no histórico, evitando perda acidental irreversível.</li>
+  <li><strong>Versões</strong> são guardadas indefinidamente; a limpeza é <strong>manual</strong> (o usuário decide quando apagar histórico). Alertas de acúmulo ficam para uma fase futura.</li>
+</ul>
+
+<h2>9. Configuração e arquivos locais</h2>
+<p><strong>Princípio:</strong> um arquivo por responsabilidade, cada um no formato que combina com ela —
+sem duplicação e sem nenhum arquivo fazendo dois papéis. Toda a edição acontece pela GUI; os arquivos
+são apenas o reflexo persistido. <strong>Nenhum deles contém segredos</strong> (passphrase/keyfile ficam
+de fora — ver 4.1).</p>
+
+<table>
+  <tr><th>Arquivo</th><th>Responsabilidade</th><th>Formato (porquê)</th><th>Se faltar</th></tr>
+  <tr>
+    <td><code>~/.env</code></td>
+    <td><strong>Como</strong> alcançar o servidor: conexão e parâmetros escalares de runtime (modo IP/Tor, host, porta, onion, socks).</td>
+    <td><code>CHAVE=VALOR</code> — são valores escalares simples, que é exatamente o que o <code>.env</code> expressa bem.</td>
+    <td>App pede a conexão na GUI no primeiro uso e grava o arquivo.</td>
+  </tr>
+  <tr>
+    <td><code>~/.config/unuser/dirs.json</code></td>
+    <td><strong>O que</strong> vai no cofre: diretórios padrão (recursivos) + itens avulsos.</td>
+    <td>JSON — é uma <em>lista estruturada</em> com objetos/flags, que não cabe bem em <code>CHAVE=VALOR</code>.</td>
+    <td>Seleção vazia; o usuário adiciona pastas pela GUI.</td>
+  </tr>
+  <tr>
+    <td><code>~/.unuserignore</code></td>
+    <td><strong>O que NÃO</strong> vai no cofre: exclusões da varredura recursiva.</td>
+    <td>Globs estilo <code>.gitignore</code> — formato consagrado para padrões de exclusão.</td>
+    <td>Criado com defaults de segurança no primeiro uso.</td>
+  </tr>
+</table>
+<p>A separação não é arbitrária: <em>conexão</em>, <em>seleção de conteúdo</em> e <em>exclusões</em> são três
+preocupações distintas, e cada formato (escalar / lista estruturada / globs) é o natural para a sua. Não há
+valor repetido entre os arquivos.</p>
+
+<h3>9.1 <code>~/.env</code> — conexão</h3>
+<pre>UNUSER_VAULT_ID=&lt;identificador-opaco-do-cofre&gt;
+UNUSER_CONN_MODE=direct            # direct | tor
+UNUSER_DIRECT_HOST=192.168.0.10
+UNUSER_DIRECT_PORT=8443
+UNUSER_TOR_ONION=&lt;...&gt;.onion
+UNUSER_TOR_PORT=8443
+UNUSER_TOR_SOCKS=127.0.0.1:9050</pre>
+
+<h3>9.2 <code>~/.config/unuser/dirs.json</code> — seleção de conteúdo</h3>
+<pre>{
+  "default_dirs": [
+    { "path": "/home/usuario/Documentos", "recursive": true },
+    { "path": "/home/usuario/Projetos",   "recursive": true }
+  ],
+  "extra_items": [
+    "/home/usuario/notas/ideias.md"
+  ]
+}</pre>
+
+<h3>9.3 <code>~/.unuserignore</code> — exclusões (sempre presente)</h3>
+<p>Existe <strong>sempre</strong>, pois a sync é recursiva e sem ele é fácil varrer segredos sem querer.
+Nome com namespace para não conflitar com o <code>.ignore</code> de outras ferramentas (ripgrep, fd).
+Defaults de segurança embutidos:</p>
+<pre># defaults de seguranca (embutidos)
+.env
+*.key
+*.pem
+.ssh/
+.gnupg/
+*.tmp
+*.swp
+.git/
+# o usuario pode adicionar mais pela interface</pre>
+
+<h2>10. Servidor cofre cego</h2>
+<ul>
+  <li><strong>Armazenamento:</strong> blobs imutáveis endereçados por id opaco + manifesto cifrado versionado.</li>
+  <li><strong>API (sobre mTLS, direta na LAN ou via Tor):</strong> obter/enviar manifesto (com <em>compare-and-swap</em> na versão), obter/enviar blob, listar histórico.</li>
+  <li><strong>Concorrência:</strong> se dois clientes tentam atualizar o manifesto, o segundo recebe rejeição por versão desatualizada → o cliente re-busca e o conflito aparece como status <span class="dot r"></span> na interface.</li>
+  <li><strong>Coleta de lixo:</strong> blobs não referenciados por nenhum manifesto/versão podem ser removidos na limpeza manual.</li>
+</ul>
+
+<h2>11. Roadmap em fases</h2>
+<table>
+  <tr><th>Fase</th><th>Entrega</th></tr>
+  <tr><td>1</td><td>Núcleo de criptografia (derivação de chaves, cifra/decifra, block-id) + testes.</td></tr>
+  <tr><td>2</td><td>Chunker + índice local (SQLite, hash de blocos).</td></tr>
+  <tr><td>3</td><td>Manifesto (serialização, cifragem, versionamento).</td></tr>
+  <tr><td>4</td><td>Servidor cofre cego (API de blobs/manifesto, mTLS, Onion Service).</td></tr>
+  <tr><td>5</td><td>App cliente PySide6 com visual XP (árvore, status, 4 ações, send/receive, escolha IP/Tor).</td></tr>
+  <tr><td>6</td><td>Empacotamento (.deb/systemd, instalação nas máquinas).</td></tr>
+</table>
+
+<h2>12. Em aberto / futuro</h2>
+<ul>
+  <li>Modo de conexão "auto" (tenta IP na LAN e cai para Tor) — opcional, hoje a escolha é manual.</li>
+  <li>Alertas de acúmulo de versões.</li>
+  <li>Sincronização do próprio arquivo de configuração entre máquinas.</li>
+  <li>Descoberta local na LAN para transferência direta entre pares.</li>
+</ul>
+
+<div class="footer">
+  unuser — especificação técnica v0.4 — documento gerado em 03/06/2026. Sujeito a revisão conforme o projeto evolui.
+</div>
+
+</body>
+</html>
