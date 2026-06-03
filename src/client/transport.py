@@ -1,7 +1,7 @@
 """Cliente HTTP(S) para o servidor cofre-cego.
 
-Fala a API do :mod:`unuser.server.http_server`. Aceita um ``ssl_context`` de
-:func:`unuser.tls.client_context` para mTLS. Na LAN conecta direto por IP; fora
+Fala a API do :mod:`server.http_server`. Aceita um ``ssl_context`` de
+:func:`common.tls.client_context` para mTLS. Na LAN conecta direto por IP; fora
 da LAN, a mesma conexão pode ser tunelada pelo Tor (proxy SOCKS) — isso entra na
 Fase 5, junto com a escolha IP/Tor na interface.
 """

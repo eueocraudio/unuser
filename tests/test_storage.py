@@ -2,7 +2,7 @@
 
 import pytest
 
-from unuser.server.storage import (
+from server.storage import (
     BlindStorage, ConflictError, InvalidIdError, NotFoundError, StorageError,
 )
 

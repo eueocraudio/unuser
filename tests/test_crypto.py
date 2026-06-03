@@ -3,7 +3,7 @@
 import pytest
 from cryptography.exceptions import InvalidTag
 
-from unuser import crypto
+from client import crypto
 
 # Argon2 leve para os testes não ficarem lentos.
 FAST = dict(time_cost=1, memory_cost=8 * 1024, parallelism=1)

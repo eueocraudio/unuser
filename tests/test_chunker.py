@@ -4,7 +4,7 @@ import random
 
 import pytest
 
-from unuser import chunker, crypto
+from client import chunker, crypto
 
 SMALL = dict(min_size=64, avg_size=256, max_size=1024)
 

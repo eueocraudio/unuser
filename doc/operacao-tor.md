@@ -20,7 +20,7 @@ publica o serviço oculto e encaminha o tráfego é o daemon `tor`.
 3. `systemctl restart tor`. O endereço fica em `/var/lib/tor/unuser/hostname`
    (algo como `abcdef…xyz.onion`).
 4. Rode o `unuserd` escutando em `127.0.0.1:8443` com o contexto mTLS
-   (`unuser.tls.server_context`).
+   (`common.tls.server_context`).
 
 ## Cliente
 

@@ -13,13 +13,17 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 
+[project.scripts]
+unuser = "client.cli:main"
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["unuser*"]
+where = ["src"]
+include = ["client*", "common*", "server*"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = ["src"]
 testpaths = ["tests"]

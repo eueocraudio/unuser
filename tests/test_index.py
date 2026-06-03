@@ -2,8 +2,8 @@
 
 import pytest
 
-from unuser import chunker, crypto
-from unuser.index import BlockRef, FileRecord, Index
+from client import chunker, crypto
+from client.index import BlockRef, FileRecord, Index
 
 
 @pytest.fixture
