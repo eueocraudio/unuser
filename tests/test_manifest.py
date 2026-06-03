@@ -3,8 +3,8 @@
 import pytest
 from cryptography.exceptions import InvalidTag
 
-from unuser import chunker, crypto, manifest
-from unuser.manifest import VaultManifest
+from client import chunker, crypto, manifest
+from client.manifest import VaultManifest
 
 FAST = dict(time_cost=1, memory_cost=8 * 1024, parallelism=1)
 
@@ -170,3 +170,21 @@ def test_rotacao_epoch_invalido(vault, keyring):
     _, kr = keyring
     with pytest.raises(ValueError):
         vault.rotate_kek(kr.kek, crypto.generate_file_key(), new_epoch=1)
+
+
+def test_rotacao_e_atomica_em_falha(vault, keyring):
+    """Se um wrapped_fk estiver corrompido, a rotação não deixa o manifesto meio-feito."""
+    from cryptography.exceptions import InvalidTag
+
+    _, kr = keyring
+    fm_ok, _ = _record(vault, kr.kek, path="a.txt")
+    fm_ruim, _ = _record(vault, kr.kek, path="b.txt")
+    wrapped_ok_antes = fm_ok.wrapped_fk
+    fm_ruim.wrapped_fk = "AAAAAAAAAAAAAAAAAAAAAAAAAAAA"   # base64 que não desembrulha
+
+    with pytest.raises(InvalidTag):
+        vault.rotate_kek(kr.kek, crypto.generate_file_key(), new_epoch=2)
+
+    assert vault.kek_epoch == 1                    # nada mudou
+    assert fm_ok.wrapped_fk == wrapped_ok_antes    # o arquivo "bom" não foi tocado
+    assert fm_ok.wrapped_by_epoch == 1

@@ -22,15 +22,80 @@ sem recriptografar conteúdo.
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Callable
 
 from . import crypto
 
-FORMAT_VERSION = 1
+# Versão do ESQUEMA do manifesto (não confundir com `vault_version`, que é o contador
+# de mutação para o CAS, nem com o histórico por arquivo em `FileVersion`). Bumpar isto
+# sempre que a forma serializada mudar, e registrar a migração correspondente abaixo.
+CURRENT_FORMAT_VERSION = 1
 _AAD_MANIFEST = b"unuser:v1:manifest"
+
+
+# --- versionamento de formato e migração ------------------------------------
+
+class ManifestFormatError(Exception):
+    """Problema com a versão de formato do manifesto."""
+
+
+class UnsupportedManifestVersion(ManifestFormatError):
+    """Manifesto gravado por uma versão de software mais nova do que esta entende."""
+
+    def __init__(self, found: int, supported: int):
+        super().__init__(
+            f"manifesto em formato v{found}, mas este software entende só até v{supported}; "
+            "atualize o unuser para abri-lo"
+        )
+        self.found = found
+        self.supported = supported
+
+
+class MigrationError(ManifestFormatError):
+    """Falta um passo de migração para chegar do formato lido ao atual."""
+
+
+# Registro de migrações: ``_MIGRATIONS[n]`` recebe o dict cru no formato ``n`` e devolve
+# o dict no formato ``n+1`` (só reformata os dados — o carimbo de ``format_version`` é
+# aplicado por :func:`migrate`). Para introduzir um formato v2, escreva a função que
+# converte v1->v2, registre-a aqui como ``_MIGRATIONS[1] = ...`` e suba
+# ``CURRENT_FORMAT_VERSION`` para 2.
+_MIGRATIONS: dict[int, Callable[[dict], dict]] = {}
+
+
+def _detect_version(raw: dict) -> int:
+    """Versão de formato de um dict cru. Manifestos legados (sem o campo) são v1."""
+    return int(raw.get("format_version", 1))
+
+
+def migrate(raw: dict, *, target: int = CURRENT_FORMAT_VERSION,
+            migrations: dict[int, Callable[[dict], dict]] = _MIGRATIONS) -> dict:
+    """Eleva um manifesto cru até a versão ``target``, aplicando as migrações em cadeia.
+
+    * Versão lida == alvo: devolve uma cópia inalterada (caminho comum).
+    * Versão lida  > alvo: :class:`UnsupportedManifestVersion` (arquivo de software novo).
+    * Versão lida  < alvo: aplica ``migrations[v]`` para cada ``v`` até o alvo; se faltar
+      um passo, :class:`MigrationError`.
+
+    Não muta o ``raw`` recebido (trabalha sobre uma cópia profunda).
+    """
+    v = _detect_version(raw)
+    if v > target:
+        raise UnsupportedManifestVersion(v, target)
+    raw = copy.deepcopy(raw)
+    while v < target:
+        step = migrations.get(v)
+        if step is None:
+            raise MigrationError(f"sem migração de formato v{v} -> v{v + 1}")
+        raw = step(raw)
+        raw["format_version"] = v + 1   # carimbo canônico: a migração só cuida dos dados
+        v += 1
+    return raw
 
 
 # --- utilidades -------------------------------------------------------------
@@ -132,7 +197,7 @@ class VaultManifest:
     kek_epoch: int = 1
     vault_version: int = 0
     files: dict[str, FileManifest] = field(default_factory=dict)
-    format_version: int = FORMAT_VERSION
+    format_version: int = CURRENT_FORMAT_VERSION
 
     # --- construção -----------------------------------------------------
 
@@ -193,9 +258,15 @@ class VaultManifest:
         """Re-embrulha todas as FKs com a nova KEK — sem tocar no conteúdo (4.2)."""
         if new_epoch <= self.kek_epoch:
             raise ValueError("new_epoch deve ser maior que o epoch atual")
+        # Computa tudo ANTES de mutar: se um unwrap falhar (wrapped_fk corrompida →
+        # InvalidTag), o manifesto fica intacto, preservando o invariante
+        # wrapped_by_epoch ↔ kek_epoch (nada de estado meio-rotacionado).
+        rewrapped = []
         for fm in self.files.values():
             fk = crypto.unwrap_file_key(old_kek, _b64d(fm.wrapped_fk))
-            fm.wrapped_fk = _b64e(crypto.wrap_file_key(new_kek, fk))
+            rewrapped.append((fm, _b64e(crypto.wrap_file_key(new_kek, fk))))
+        for fm, new_wrapped in rewrapped:
+            fm.wrapped_fk = new_wrapped
             fm.wrapped_by_epoch = new_epoch
         self.kek_epoch = new_epoch
         self.vault_version += 1
@@ -212,11 +283,14 @@ class VaultManifest:
 
     @classmethod
     def from_dict(cls, d: dict) -> "VaultManifest":
+        # Ponto único de leitura: migra qualquer formato antigo até o atual antes de
+        # reconstruir. Versões futuras (desconhecidas) levantam UnsupportedManifestVersion.
+        d = migrate(d)
         return cls(
             vault_id=d["vault_id"], argon2_salt=d["argon2_salt"],
             kek_epoch=d["kek_epoch"], vault_version=d["vault_version"],
             files={fid: FileManifest.from_dict(fm) for fid, fm in d.get("files", {}).items()},
-            format_version=d.get("format_version", FORMAT_VERSION),
+            format_version=d.get("format_version", CURRENT_FORMAT_VERSION),
         )
 
 
