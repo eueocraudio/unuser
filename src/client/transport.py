@@ -1,14 +1,16 @@
 """Cliente HTTP(S) para o servidor cofre-cego.
 
 Fala a API do :mod:`server.http_server`. Aceita um ``ssl_context`` de
-:func:`common.tls.client_context` para mTLS. Na LAN conecta direto por IP; fora
-da LAN, a mesma conexão pode ser tunelada pelo Tor (proxy SOCKS) — isso entra na
-Fase 5, junto com a escolha IP/Tor na interface.
+:func:`common.tls.client_context` para mTLS. Na LAN conecta direto por IP; fora da LAN,
+passe ``socks_proxy=(host, port)`` para tunelar a mesma conexão pelo SOCKS5 do Tor —
+o mTLS continua autenticando o cliente por dentro do túnel, e o ``.onion`` autentica o
+servidor (§4.6).
 """
 
 from __future__ import annotations
 
 import http.client
+import socket
 import ssl
 
 _H_VERSION = "X-Unuser-Version"
@@ -18,6 +20,78 @@ _H_NEW = "X-Unuser-New-Version"
 
 class TransportError(Exception):
     """Resposta inesperada do servidor."""
+
+
+# --- túnel SOCKS5 (Tor) -----------------------------------------------------
+
+def _recvn(sock: socket.socket, n: int) -> bytes:
+    buf = b""
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
+        if not chunk:
+            raise TransportError("conexão SOCKS5 fechada no meio do handshake")
+        buf += chunk
+    return buf
+
+
+def socks5_connect(proxy: tuple[str, int], dest: tuple[str, int],
+                   timeout: float | None = None) -> socket.socket:
+    """Abre um socket TCP até ``dest`` através de um proxy SOCKS5 (sem autenticação).
+
+    Usa ATYP=domínio (0x03) e deixa o **proxy** resolver o host — é assim que o Tor
+    alcança um endereço ``.onion`` (o cliente não o resolve nem deveria).
+    """
+    proxy_host, proxy_port = proxy
+    dest_host, dest_port = dest
+    sock = socket.create_connection((proxy_host, proxy_port), timeout=timeout)
+    try:
+        sock.sendall(b"\x05\x01\x00")                  # VER=5, NMETHODS=1, MÉTODO=no-auth
+        ver, method = _recvn(sock, 2)
+        if ver != 0x05 or method != 0x00:
+            raise TransportError("SOCKS5: proxy não aceitou 'sem autenticação'")
+
+        host_b = dest_host.encode("ascii")             # .onion é ASCII; Tor resolve
+        if not host_b or len(host_b) > 255:
+            raise TransportError(f"SOCKS5: host inválido {dest_host!r}")
+        sock.sendall(b"\x05\x01\x00\x03" + bytes([len(host_b)]) + host_b
+                     + int(dest_port).to_bytes(2, "big"))
+
+        ver, rep, _rsv, atyp = _recvn(sock, 4)         # VER, REP, RSV, ATYP
+        if rep != 0x00:
+            raise TransportError(f"SOCKS5: CONNECT recusado (REP={rep})")
+        if atyp == 0x01:                               # IPv4: descarta BND.ADDR
+            _recvn(sock, 4)
+        elif atyp == 0x04:                             # IPv6
+            _recvn(sock, 16)
+        elif atyp == 0x03:                             # domínio (1 byte de tamanho)
+            _recvn(sock, _recvn(sock, 1)[0])
+        else:
+            raise TransportError(f"SOCKS5: ATYP inesperado {atyp}")
+        _recvn(sock, 2)                                # descarta BND.PORT
+        return sock
+    except Exception:
+        sock.close()
+        raise
+
+
+class _Socks5HTTPConnection(http.client.HTTPConnection):
+    def __init__(self, *args, socks: tuple[str, int], **kwargs):
+        self._socks = socks
+        super().__init__(*args, **kwargs)
+
+    def connect(self) -> None:
+        self.sock = socks5_connect(self._socks, (self.host, self.port), self.timeout)
+
+
+class _Socks5HTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, *args, socks: tuple[str, int], **kwargs):
+        self._socks = socks
+        super().__init__(*args, **kwargs)
+
+    def connect(self) -> None:
+        raw = socks5_connect(self._socks, (self.host, self.port), self.timeout)
+        # mTLS por dentro do túnel; check_hostname=False no client_context (id por cert).
+        self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
 
 
 class ConflictError(TransportError):
@@ -30,13 +104,21 @@ class ConflictError(TransportError):
 
 class VaultClient:
     def __init__(self, host: str, port: int, *, ssl_context: ssl.SSLContext | None = None,
-                 timeout: float = 30.0):
+                 socks_proxy: tuple[str, int] | None = None, timeout: float = 30.0):
         self.host = host
         self.port = port
         self.ssl_context = ssl_context
+        self.socks_proxy = socks_proxy        # (host, port) do SOCKS5 do Tor, ou None
         self.timeout = timeout
 
     def _conn(self) -> http.client.HTTPConnection:
+        if self.socks_proxy is not None:      # tunelado pelo Tor
+            if self.ssl_context is not None:
+                return _Socks5HTTPSConnection(
+                    self.host, self.port, context=self.ssl_context,
+                    timeout=self.timeout, socks=self.socks_proxy)
+            return _Socks5HTTPConnection(
+                self.host, self.port, timeout=self.timeout, socks=self.socks_proxy)
         if self.ssl_context is not None:
             return http.client.HTTPSConnection(
                 self.host, self.port, context=self.ssl_context, timeout=self.timeout)

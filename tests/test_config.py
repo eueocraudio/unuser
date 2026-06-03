@@ -1,7 +1,5 @@
 """Testes do carregamento de configuração (§9): .env e dirs.json."""
 
-import pytest
-
 from client.config import ConnConfig, ContentConfig
 from client.transport import VaultClient
 
@@ -30,9 +28,13 @@ def test_conn_defaults_quando_arquivo_falta(tmp_path):
 
 
 def test_make_client_direct_e_tor():
-    assert isinstance(ConnConfig(mode="direct").make_client(), VaultClient)
-    with pytest.raises(NotImplementedError):       # SOCKS5/Tor é Fase 5
-        ConnConfig(mode="tor").make_client()
+    direto = ConnConfig(mode="direct", direct_host="10.0.0.1", direct_port=9000).make_client()
+    assert isinstance(direto, VaultClient) and direto.socks_proxy is None
+
+    tor = ConnConfig(mode="tor", tor_onion="abc.onion", tor_port=8443,
+                     tor_socks="127.0.0.1:9050").make_client()
+    assert tor.host == "abc.onion" and tor.port == 8443
+    assert tor.socks_proxy == ("127.0.0.1", 9050)   # tunelado pelo SOCKS5 do Tor
 
 
 # --- ~/.config/unuser/dirs.json (conteúdo) ----------------------------------

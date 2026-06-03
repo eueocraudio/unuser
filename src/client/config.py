@@ -64,14 +64,20 @@ class ConnConfig:
                 m[key.strip()] = _COMMENT.sub("", value).strip()
         return cls.from_mapping(m)
 
+    def socks(self) -> tuple[str, int]:
+        """(host, port) do proxy SOCKS5, parseado de ``UNUSER_TOR_SOCKS`` (host:porta)."""
+        host, _, port = self.tor_socks.partition(":")
+        return host or "127.0.0.1", int(port or "9050")
+
     def make_client(self, *, ssl_context=None, timeout: float = 30.0) -> VaultClient:
         """Constrói o :class:`VaultClient` conforme o modo de conexão."""
         if self.mode == "direct":
             return VaultClient(self.direct_host, self.direct_port,
                                ssl_context=ssl_context, timeout=timeout)
         if self.mode == "tor":
-            # O túnel SOCKS5 do cliente entra na Fase 5 (ver doc/operacao-tor.md).
-            raise NotImplementedError("conexão via Tor/SOCKS5 ainda não implementada (Fase 5)")
+            # Conecta ao .onion ATRAVÉS do SOCKS5 do Tor; o mTLS roda dentro do túnel.
+            return VaultClient(self.tor_onion, self.tor_port, ssl_context=ssl_context,
+                               socks_proxy=self.socks(), timeout=timeout)
         raise ValueError(f"modo de conexão desconhecido: {self.mode!r}")
 
 

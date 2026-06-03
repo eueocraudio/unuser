@@ -31,7 +31,8 @@ publica o serviço oculto e encaminha o tráfego é o daemon `tor`.
 3. O cliente conecta ao `.onion:8443` **através** do SOCKS5 do Tor e faz o mTLS
    por dentro do túnel.
 
-> Estado atual: o `VaultClient` já fala mTLS direto (LAN). A ligação do socket através
-> do SOCKS5 do Tor entra na **Fase 5**, junto com a escolha IP/Tor na interface.
-> Latência maior é esperada — aceitável porque a sincronização é manual e transfere
-> só os blocos que mudaram.
+> Estado atual: o `VaultClient` fala mTLS direto (LAN) **e** tunelado pelo SOCKS5 do Tor
+> (`VaultClient(..., socks_proxy=(host, port))`, montado por `config.ConnConfig.make_client`
+> no modo `tor`). O CONNECT usa ATYP=domínio para o Tor resolver o `.onion`. Latência
+> maior é esperada — aceitável porque a sincronização é manual e transfere só os blocos
+> que mudaram.
