@@ -129,6 +129,36 @@ def cmd_delete(args) -> int:
     return 0
 
 
+def cmd_gui(args) -> int:
+    from . import gui                                  # import tardio: PySide6 só no modo GUI
+    content, index, session = _build(args)
+    conn = config.ConnConfig.from_env(args.env)
+    engine = SyncEngine(index)
+
+    class _Controller:
+        def status(self):
+            return engine.status(content.scan(ignore_path=args.ignore), session._load()[1])
+
+        def send(self, paths):
+            scanned = content.scan(ignore_path=args.ignore)
+            session.send_many([scanned[p] for p in paths if p in scanned])
+
+        def receive(self, paths):
+            for p in paths:
+                session.receive(p)
+
+        def delete(self, paths):
+            for p in paths:
+                session.delete(p)
+
+        def connection_label(self):
+            if conn.mode == "tor":
+                return f"Tor {conn.tor_onion or '(sem onion)'}"
+            return f"Direto {conn.direct_host}:{conn.direct_port}"
+
+    return gui.run(_Controller())
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="unuser", description="Cliente do cofre-cego unuser.")
     p.add_argument("--env", default=DEFAULTS["env"], type=Path)
@@ -149,6 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
     d = sub.add_parser("delete", help="apaga arquivos (tombstone + remove local)")
     d.add_argument("paths", nargs="+")
     d.set_defaults(func=cmd_delete)
+    sub.add_parser("gui", help="abre a interface gráfica (PySide6)").set_defaults(func=cmd_gui)
     return p
 
 

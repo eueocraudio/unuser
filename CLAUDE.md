@@ -51,7 +51,7 @@ O código vive em **`src/`**, dividido em três pacotes de topo (sem namespace `
 
 - **`src/client/`** — o lado que cifra/decifra: `crypto.py`, `chunker.py`, `index.py`,
   `manifest.py`, `transport.py`, `scanner.py`, `sync.py`, `actions.py`, `config.py`,
-  `cli.py`. Imports: `from client.crypto import ...`.
+  `cli.py`, `gui.py`. Imports: `from client.crypto import ...`.
 - **`src/server/`** — o cofre-cego (nunca decifra): `storage.py`, `http_server.py`.
   Imports: `from server.storage import ...`.
 - **`src/common/`** — compartilhado pelos dois lados: `tls.py` (contextos mTLS).
@@ -185,15 +185,26 @@ mutam (`actions`).
   mTLS. Allowlist = arquivo PEM concatenando os certs de cliente confiáveis
   (`write_allowlist`); o servidor faz `verify_mode=CERT_REQUIRED`.
 - `src/client/transport.py` — `VaultClient` (http.client) que fala a API; aceita
-  `ssl_context` para mTLS. Levanta `ConflictError` no 409.
+  `ssl_context` para mTLS e `socks_proxy=(host,port)` para tunelar pelo SOCKS5 do Tor
+  (`socks5_connect`, CONNECT por ATYP=domínio p/ o Tor resolver o `.onion`). 409 → `ConflictError`.
 
 **Tor** é operacional (ver `doc/operacao-tor.md`): o `unuserd` só escuta TLS em
-localhost; o daemon `tor` publica o Onion Service. O tunelamento via SOCKS5 do cliente
-fica para a Fase 5.
+localhost; o daemon `tor` publica o Onion Service; o cliente conecta ao `.onion` pelo
+SOCKS5 (modo `tor` em `config.make_client`), com o mTLS por dentro do túnel.
+
+## GUI (`src/client/gui.py`)
+
+Janela PySide6 estilo XP Explorer/Luna (§5), via QSS (`LUNA_QSS`) — sem assets
+proprietários. `MainWindow` recebe um **controller** desacoplado da rede
+(`status()`/`send`/`receive`/`delete(paths)`/`connection_label()`), exibe a árvore com as
+6 cores de status (`STATUS_COLORS`), o painel de tarefas à esquerda e as ações na barra +
+menu de contexto. Lançada por `unuser gui` (import tardio do PySide6, dep opcional
+`gui`). Testável sem display: `tests/test_gui.py` usa `QT_QPA_PLATFORM=offscreen` +
+controller falso.
 
 ## Roadmap
 
-Fases 1–4 ✓ concluídas (cripto · chunker+índice · manifesto · servidor cofre-cego +
-mTLS). Próximas: 5) GUI PySide6 estilo XP (treeview, status, 4 ações, send/receive,
-escolha IP/Tor + SOCKS) · 6) empacotamento (.deb/systemd). Acesso remoto é **Tor**
-(sem VPN).
+Fases 1–5 ✓ (cripto · chunker+índice · manifesto · servidor cofre-cego+mTLS · motor de
+sync+CLI · GUI PySide6 + SOCKS5/Tor). Falta da Fase 5: refinos de UX (threading p/ não
+travar a UI em rede lenta) e o salt cross-máquina. **Fase 6**: empacotamento
+(.deb/systemd). Acesso remoto é **Tor** (sem VPN).

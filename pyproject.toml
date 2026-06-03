@@ -12,6 +12,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+gui = ["PySide6-Essentials>=6.7"]
 
 [project.scripts]
 unuser = "client.cli:main"
