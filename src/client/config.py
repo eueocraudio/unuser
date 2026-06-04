@@ -87,16 +87,17 @@ class ConnConfig:
 class ContentConfig:
     default_dirs: list[tuple[str, bool]] = field(default_factory=list)
     extra_items: list[str] = field(default_factory=list)
+    source: Path | None = None         # de onde foi carregado (para regravar)
 
     @classmethod
     def from_json(cls, path) -> "ContentConfig":
         p = Path(path)
         if not p.exists():
-            return cls()
+            return cls(source=p)
         d = json.loads(p.read_text(encoding="utf-8"))
         dirs = [(e["path"], bool(e.get("recursive", True)))
                 for e in d.get("default_dirs", [])]
-        return cls(default_dirs=dirs, extra_items=list(d.get("extra_items", [])))
+        return cls(default_dirs=dirs, extra_items=list(d.get("extra_items", [])), source=p)
 
     def path_resolver(self) -> PathResolver:
         return PathResolver(self.default_dirs, self.extra_items)
@@ -104,3 +105,78 @@ class ContentConfig:
     def scan(self, *, ignore_path=None) -> dict[str, scanner.ScannedFile]:
         ignore = scanner.IgnoreRules.load(ignore_path)
         return scanner.scan(self.default_dirs, self.extra_items, ignore=ignore)
+
+    # --- mutação + persistência -----------------------------------------
+
+    def save(self) -> None:
+        """Regrava o ``dirs.json`` (em :attr:`source`) com o estado atual."""
+        if self.source is None:
+            raise ValueError("ContentConfig sem 'source' — não sei onde gravar")
+        out = {
+            "default_dirs": [{"path": p, "recursive": r} for p, r in self.default_dirs],
+            "extra_items": list(self.extra_items),
+        }
+        self.source.parent.mkdir(parents=True, exist_ok=True)
+        self.source.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    def add_dir(self, path, *, recursive: bool = True) -> bool:
+        """Adiciona uma pasta sincronizada (idempotente) e persiste. True se era nova."""
+        path = str(Path(path))
+        known = {Path(p).resolve() for p, _ in self.default_dirs}
+        if Path(path).resolve() in known:
+            return False
+        self.default_dirs.append((path, recursive))
+        self.save()
+        return True
+
+    def add_item(self, path) -> bool:
+        """Adiciona um arquivo avulso (sincroniza só ele) e persiste. True se era novo."""
+        path = str(Path(path))
+        if Path(path).resolve() in {Path(i).resolve() for i in self.extra_items}:
+            return False
+        self.extra_items.append(path)
+        self.save()
+        return True
+
+    def remove_dir(self, path) -> bool:
+        target = Path(path).resolve()
+        kept = [(p, r) for p, r in self.default_dirs if Path(p).resolve() != target]
+        if len(kept) == len(self.default_dirs):
+            return False
+        self.default_dirs = kept
+        self.save()
+        return True
+
+    def remove_item(self, path) -> bool:
+        target = Path(path).resolve()
+        kept = [i for i in self.extra_items if Path(i).resolve() != target]
+        if len(kept) == len(self.extra_items):
+            return False
+        self.extra_items = kept
+        self.save()
+        return True
+
+    def resolve_or_register(self, local_path, *, home=None) -> str:
+        """Mapeia ``local_path`` → *vault path*, registrando a pasta se preciso.
+
+        Se o arquivo já está sob uma raiz/avulso conhecido, devolve o vault path direto.
+        Senão, e estando **dentro de ``~/``**, registra automaticamente (e persiste): a
+        **pasta** do arquivo vira raiz sincronizada — exceto se o arquivo estiver **direto
+        em ``~/``**, caso em que ele é adicionado como **item avulso** (não sincronizamos a
+        home inteira, que traria configs/segredos/caches). Fora de ``~/`` → ``ValueError``.
+        """
+        home = Path(home or Path.home()).resolve()
+        p = Path(local_path).resolve()
+        vp = self.path_resolver().vault_path_for(p)
+        if vp is not None:
+            return vp
+        if p != home and home not in p.parents:
+            raise ValueError(f"{p}: fora de {home} — não dá para sincronizar automaticamente")
+        if p.parent == home:
+            self.add_item(p)                 # arquivo solto no ~/ → só ele, não a home toda
+        else:
+            self.add_dir(p.parent)           # registra a pasta do arquivo como raiz
+        vp = self.path_resolver().vault_path_for(p)
+        if vp is None:                       # não deveria acontecer após registrar
+            raise ValueError(f"{p}: falha ao registrar no cofre")
+        return vp
