@@ -8,7 +8,7 @@ sem PySide6/blake3/argon2).
 
 ```bash
 sh packaging/build-deb.sh          # gera dist/unuserd_<versao>_all.deb (sem root)
-sudo apt install ./dist/unuserd_0.0.1_all.deb
+sudo apt install ./dist/unuserd_1.0.1_all.deb
 ```
 
 A instalação cria o usuário de sistema `unuser`, o diretório `/var/lib/unuser/vault` e
@@ -38,7 +38,7 @@ pesado e **embarca só o `blake3`** (que não existe no apt):
 
 ```bash
 sh packaging/build-deb-client.sh    # gera dist/unuser_<versao>_amd64.deb (sem root)
-sudo apt install ./dist/unuser_0.0.1_amd64.deb
+sudo apt install ./dist/unuser_1.0.1_amd64.deb
 unuser gui          # ou: unuser status / send / receive / delete
 ```
 

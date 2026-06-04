@@ -3,11 +3,14 @@
 Sincronização **manual** de documentos entre máquinas Debian através de um servidor
 central **cofre-cego** (*zero-knowledge*): o servidor (`unuserd`) só guarda blobs e
 manifestos **cifrados** e nunca vê conteúdo, nomes de arquivos ou chaves. O cliente
-(`unuser`) é um app gráfico estilo *Windows XP Explorer* (PySide6) com CLI equivalente; a
-sincronização é controlada por status e ações na interface (nada automático).
+(`unuser`) é um app gráfico **estilo Explorer em tema escuro** (PySide6) com CLI
+equivalente; a sincronização é controlada por status e ações na interface (nada automático).
 
-**Estado:** roadmap (Fases 1–6) concluído + refinos. 154 testes passando. Repositório
-privado.
+**Estado:** **v1.0.1** (cliente). Roadmap (Fases 1–6) concluído + refinos. ~166 testes
+passando. Repositório privado.
+
+> **Manual do usuário** (instalação, configuração e uso, passo a passo):
+> [`doc/manual-usuario-unuser.html`](doc/manual-usuario-unuser.html) (+ PDF).
 
 ## Como funciona (resumo)
 
@@ -27,7 +30,34 @@ privado.
 A especificação canônica está em [`doc/especificacao-unuser.html`](doc/especificacao-unuser.html)
 (+ PDF). Detalhes de arquitetura e convenções para contribuir: [`CLAUDE.md`](CLAUDE.md).
 
-## Setup (do zero)
+## Instalação
+
+### Opção A — pacotes `.deb` (recomendado para usar)
+
+Os `.deb` são montados a partir de `packaging/` (ver [`packaging/README.md`](packaging/README.md)).
+Requer **Debian 13 (trixie)**.
+
+**Servidor** (nó central, sempre ligado):
+
+```bash
+sh packaging/build-deb.sh                       # gera dist/unuserd_<versao>_all.deb
+sudo apt install ./dist/unuserd_1.0.1_all.deb   # cria usuário 'unuser' + /var/lib/unuser/vault
+sudoedit /etc/default/unuserd                   # storage/host/porta e, p/ mTLS, --tls-*
+sudo systemctl start unuserd
+```
+
+**Cliente** (GUI/CLI):
+
+```bash
+sh packaging/build-deb-client.sh                # gera dist/unuser_<versao>_amd64.deb
+sudo apt install ./dist/unuser_1.0.1_amd64.deb  # puxa python3-cryptography/-argon2; blake3 embarcado
+```
+
+> A **GUI** recomenda `python3-pyside6.qtwidgets` (`sudo apt install python3-pyside6.qtwidgets`).
+> Em Debian 13/Qt 6.5+ o plugin xcb também precisa de **`libxcb-cursor0`**
+> (`sudo apt install libxcb-cursor0`). O CLI de sync funciona sem nada disso.
+
+### Opção B — a partir do código (desenvolvimento)
 
 Precisa de **Python ≥ 3.11**. Crie um venv e instale em modo editável:
 
@@ -58,7 +88,7 @@ Rodar os testes:
 **Servidor** (nó central, sempre ligado — escuta só em localhost; o Tor publica o serviço):
 
 ```bash
-.venv/bin/unuserd --storage /var/lib/unuser/vault --host 127.0.0.1 --port 8443 \
+.venv/bin/unuserd --storage /var/lib/unuser/vault --host 127.1.0.1 --port 8443 \
   [--tls-cert server.crt --tls-key server.key --tls-allow allow.pem]   # mTLS opcional
 ```
 
@@ -74,6 +104,20 @@ keyfile via `--keyfile`/`UNUSER_KEYFILE` (ver §9 da spec):
 .venv/bin/unuser gui                              # interface gráfica (precisa do extra gui)
 ```
 
+**Scripts de conveniência** (acham o binário do `.venv` ou do PATH; aplicam defaults):
+
+```bash
+src/server/run.sh                                # sobe o unuserd (UNUSERD_PORT=... p/ trocar)
+UNUSER_PASSPHRASE=... src/client/run.sh status   # cliente (gera o keyfile na 1ª vez)
+UNUSER_PASSPHRASE=... src/client/run-gui.sh      # instala PySide6 + libxcb-cursor0 e abre a GUI
+```
+
+**A interface gráfica** é um Explorer de duas áreas (tema escuro): à esquerda a **árvore de
+pastas**, à direita a **lista de arquivos da pasta selecionada** (com 6 cores de status).
+Botões: Atualizar/Enviar/Receber/Apagar, **Adicionar arquivo** (registra a pasta no
+`dirs.json` se preciso) e **Pastas…** (gerenciar pastas sincronizadas). A expansão da árvore
+e a pasta selecionada são lembradas entre sessões (em `~/.local/data/unuser/`).
+
 ## Empacotamento (.deb + systemd)
 
 `packaging/` monta os dois pacotes **sem root** (ver [`packaging/README.md`](packaging/README.md)):
@@ -87,11 +131,13 @@ sh packaging/build-deb-client.sh   # dist/unuser_*_amd64.deb  (cliente; blake3 e
 
 ```
 src/client/   crypto, chunker, index, manifest, transport, scanner, sync, actions, config, cli, gui
+              run.sh, run-gui.sh                  (scripts de execução do cliente)
 src/server/   storage, http_server, cli           (cofre-cego; nunca decifra)
+              run.sh                               (script de execução do servidor)
 src/common/   tls                                  (contextos mTLS, compartilhado)
 tests/        suíte pytest
 packaging/    .deb (cliente e servidor) + systemd
-doc/          especificação (HTML/PDF), operação Tor, roteiro de testes manual
+doc/          especificação + manual do usuário (HTML/PDF), operação Tor, roteiro de testes
 ```
 
 ## Segurança em uma linha

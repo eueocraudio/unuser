@@ -7,15 +7,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **unuser** (UniqueUser) sincroniza documentos entre máquinas Debian via um servidor
 central **cofre-cego** (zero-knowledge): o servidor só guarda blobs e manifestos
 cifrados, sem nunca ver conteúdo, nomes ou chaves. O cliente é um app gráfico
-(PySide6, visual estilo Windows XP Explorer) e a sincronização é **manual**,
+(PySide6, **layout Explorer em tema escuro**) e a sincronização é **manual**,
 controlada por status/ações na interface.
 
-A especificação completa e canônica está em **`doc/especificacao-unuser.html`**
-(fonte editável) — leia-a antes de mexer na arquitetura. O PDF é gerado a partir dela.
+Documentação:
+- **`doc/especificacao-unuser.html`** — especificação técnica canônica (fonte editável;
+  PDF gerado a partir dela). Leia antes de mexer na arquitetura.
+- **`doc/manual-usuario-unuser.html`** — manual do usuário (instalação por `.deb` e do
+  código, configuração, uso, GUI, Tor); PDF gerado a partir dele.
 
 **Estado:** Fases 1–6 do roadmap concluídas + refinos (GUI com threading, retry
-automático do CAS, chunking em streaming, salt cross-máquina). 154 testes passando.
-Executáveis `unuser` (cliente) e `unuserd` (servidor); `.deb` de ambos em `packaging/`.
+automático do CAS, chunking em streaming, salt cross-máquina, **block_id por arquivo**,
+GUI repaginada: tema escuro + Explorer de duas áreas + ícones + adicionar arquivo/pastas +
+persistência do estado da árvore). Cliente em **v1.0.1**. ~166 testes passando. Executáveis
+`unuser` (cliente) e `unuserd` (servidor); `.deb` de ambos em `packaging/`; scripts de
+conveniência em `src/server/run.sh`, `src/client/run.sh`, `src/client/run-gui.sh`.
 
 ## Ambiente (peculiaridade importante)
 
@@ -45,9 +51,11 @@ configurado no `pyproject.toml`.
 # Um teste específico
 .venv/bin/python -m pytest tests/test_crypto.py::test_wrap_unwrap_fk -v
 
-# Regenerar o PDF da especificação a partir do HTML (não há pandoc/LaTeX; usa LibreOffice)
+# Regenerar os PDFs a partir do HTML (não há pandoc/LaTeX; usa LibreOffice)
 soffice --headless -env:UserInstallation=file:///tmp/lo_unuser_profile \
   --convert-to pdf --outdir doc doc/especificacao-unuser.html
+soffice --headless -env:UserInstallation=file:///tmp/lo_unuser_profile \
+  --convert-to pdf --outdir doc doc/manual-usuario-unuser.html
 ```
 
 ## Estrutura do código (layout `src/`)
@@ -83,7 +91,13 @@ Hierarquia de chaves (criptografia em **envelope**):
   Isso permite **rotação da chave-mestra sem recriptografar o conteúdo** — só re-embrulha
   as FKs (ver teste `test_rotacao_reenvelopa_sem_tocar_conteudo`).
 - `encrypt`/`decrypt` — AES-256-GCM, formato `nonce || ct || tag`, com AAD opcional.
-- `block_id` — HMAC-SHA256 com chave (deduplicação dentro do arquivo sem vazar conteúdo).
+- `block_id` — HMAC-SHA256 com chave (deduplicação **dentro do arquivo** sem vazar conteúdo).
+  A chave do HMAC é **por arquivo**: `derive_block_id_key(block_id_key, fk)` (HKDF, FK como
+  IKM). Assim blocos idênticos em arquivos diferentes (FKs diferentes) recebem ids
+  diferentes — senão colidiriam no mesmo blob (endereçado por conteúdo), cifrado com a FK de
+  só um deles, deixando o outro **irrecuperável**. Dentro do mesmo arquivo (mesma FK) a dedup
+  intra-arquivo é preservada. Quem usa: `actions._upload_and_record`. Ver
+  `tests/test_actions.py::test_blocos_iguais_em_arquivos_diferentes_nao_corrompem`.
 - `content_hash` — BLAKE3 (detecção de modificação / integridade).
 
 Regra inviolável: **passphrase e keyfile nunca são gravados** em config — só geram a KEK
@@ -184,15 +198,24 @@ mutam (`actions`).
 ## Configuração e CLI (`src/client/config.py`, `src/client/cli.py`)
 
 - `config.py` — carrega a §9: `ConnConfig.from_env` (`~/.env`, `CHAVE=VALOR`, remove
-  comentário inline) → `make_client()` (modo `direct`; `tor` ainda levanta
-  `NotImplementedError`, Fase 5); `ContentConfig.from_json` (`dirs.json`) →
-  `path_resolver()` e `scan()`.
+  comentário inline) → `make_client()` (modo `direct` ou `tor` — este via SOCKS5, Fase 5
+  pronta); `ContentConfig.from_json` (`dirs.json`) → `path_resolver()` e `scan()`.
+  `ContentConfig` também **muta e persiste** o `dirs.json` (lembra a `source`): `save`,
+  `add_dir`/`add_item`/`remove_dir`/`remove_item` (idempotentes) e
+  `resolve_or_register(local, home)` — mapeia um caminho local → vault path, registrando a
+  **pasta** do arquivo como raiz se ele estiver fora das raízes mas **dentro de `~/`** (ou
+  como **item avulso** se estiver direto em `~/`, para nunca sincronizar a home inteira);
+  fora de `~/` → `ValueError`. É o que o botão "Adicionar arquivo" da GUI usa.
 - `cli.py` — executável `unuser` (entry point em `pyproject` `[project.scripts]`).
   Subcomandos `status`/`send`/`receive`/`delete`/`gui` sobre o `VaultSession`. Passphrase
   via `getpass` ou `UNUSER_PASSPHRASE`; keyfile via `--keyfile`/`UNUSER_KEYFILE`. **Salt do
   Argon2**: `_unlock` lê o salt do **manifesto publicado** (`peek_salt`, em claro) — uma
   máquina nova abre o cofre **sem cópia manual**; cofre novo gera o salt (cacheado no
-  índice `meta`). E2E single-machine em `tests/test_cli.py`; cross-máquina em
+  índice `meta`). O `_Controller` do `gui` expõe, além de status/send/receive/delete:
+  `add` (usa `resolve_or_register`), `sync_folders`/`add_root`/`remove_root`/`remove_item`
+  (gerência de pastas) e `ui_state`/`save_ui_state` (estado da GUI em
+  **`~/.local/data/unuser/gui-state.json`** — `_DATA_DIR`, criado recursivamente).
+  E2E single-machine em `tests/test_cli.py`; cross-máquina em
   `tests/test_actions.py::test_maquina_nova_abre_cofre_pelo_salt_publicado`.
 
 ## Servidor cofre-cego (`src/server/`)
@@ -219,17 +242,41 @@ SOCKS5 (modo `tor` em `config.make_client`), com o mTLS por dentro do túnel.
 
 ## GUI (`src/client/gui.py`)
 
-Janela PySide6 estilo XP Explorer/Luna (§5), via QSS (`LUNA_QSS`) — sem assets
-proprietários. `MainWindow` recebe um **controller** desacoplado da rede
-(`status()`/`send`/`receive`/`delete(paths)`/`connection_label()`), exibe a árvore com as
-6 cores de status (`STATUS_COLORS`), o painel de tarefas à esquerda e as ações na barra +
-menu de contexto. As operações rodam **fora da thread da UI** (`_Worker`/`QThreadPool` de
-1 thread → serializado; resultado entregue por sinal na thread da UI), com estado
-"ocupado" (cursor + ações desabilitadas) — não trava em rede lenta via Tor. O índice da
-GUI usa `check_same_thread=False` (acesso serializado pelo pool). Lançada por `unuser gui`
-(import tardio do PySide6, dep opcional `gui`). Testável sem display:
-`tests/test_gui.py` usa `QT_QPA_PLATFORM=offscreen` + controller falso
-(`async_run=False` p/ determinismo; um teste exercita o caminho threaded).
+Janela PySide6 com **layout Explorer de duas áreas em tema escuro** (§5), via QSS
+(`DARK_QSS`) — sem assets proprietários. `MainWindow` recebe um **controller** desacoplado
+da rede; layout:
+
+- **Esquerda:** `folder_tree` — TreeView de **pastas** (hierárquica, raiz "Cofre"),
+  construída a partir dos vault paths conhecidos.
+- **Direita:** `tree` — **lista** dos arquivos **diretamente** na pasta selecionada (NÃO
+  recursivo; subpastas ficam na árvore), cada um com a sua cor de status (`STATUS_COLORS`,
+  6 tons vivos p/ fundo escuro). Exibe o basename; o `FileState` (com vault path absoluto)
+  fica no `UserRole`.
+- **Ícones:** pastas e arquivos usam os ícones padrão do Qt (`QStyle.SP_DirIcon`/
+  `SP_FileIcon`, criados em `MainWindow.__init__` como `_icon_dir`/`_icon_file`) — sem assets
+  próprios; aplicados na árvore, na lista e no `SyncFoldersDialog`.
+
+Barra de ferramentas: Atualizar/Enviar/Receber/Apagar, **Adicionar arquivo** (seletor →
+`controller.add` via `resolve_or_register`, auto-registra a pasta) e **Pastas…**
+(`SyncFoldersDialog`: lista/adiciona/remove raízes e itens avulsos). Ações também no menu
+de contexto da lista.
+
+- **Estado da árvore persistente:** expansão por nó + pasta selecionada são preservadas
+  entre reconstruções **e entre sessões** — `_load_ui_state`/`_save_ui_state` via
+  `controller.ui_state`/`save_ui_state` (arquivo em `~/.local/data/unuser/gui-state.json`).
+  Sinais `itemExpanded`/`itemCollapsed`/`itemSelectionChanged` salvam; o rebuild restaura
+  (1ª vez sem estado → expande tudo; pastas novas nascem colapsadas).
+- **Threading:** operações rodam **fora da thread da UI** (`_Worker`/`QThreadPool` de 1
+  thread → serializado; resultado por sinal na thread da UI), com estado "ocupado" — não
+  trava em rede lenta via Tor. O índice usa `check_same_thread=False` (acesso serializado
+  pelo pool); o estado da GUI é gravado em **arquivo** (não no SQLite) para não tocar a
+  conexão a partir da thread da UI.
+
+Lançada por `unuser gui` (import tardio do PySide6, dep opcional `gui`) ou pelo
+`src/client/run-gui.sh` (instala o extra `gui` + resolve `libxcb-cursor0` sem root).
+Testável sem display: `tests/test_gui.py` usa `QT_QPA_PLATFORM=offscreen` + controller
+falso (`async_run=False` p/ determinismo; um teste exercita o caminho threaded; outros
+cobrem filtro por pasta, persistência de estado, adicionar arquivo e o diálogo de pastas).
 
 ## Empacotamento (`packaging/`)
 
@@ -245,9 +292,21 @@ Fase 6: dois `.deb` montados sem root (`dpkg-deb --root-owner-group`).
 Ver `packaging/README.md`. Os `.deb` foram verificados rodando com o python3 do **sistema**
 (fora do venv).
 
+## Scripts de execução (`src/server/`, `src/client/`)
+
+Conveniência para rodar sem decorar flags (acham o binário do `.venv` ou do PATH):
+- `src/server/run.sh` — sobe o `unuserd` (defaults de storage/host/porta; mTLS via
+  `UNUSERD_TLS_CERT/KEY/ALLOW`).
+- `src/client/run.sh` — wrapper do `unuser`: garante o keyfile (gera 0600 na 1ª vez, com
+  aviso de que deve ser **copiado** — não regerado — entre máquinas) e repassa o subcomando.
+- `src/client/run-gui.sh` — instala o extra `gui` (PySide6) e, em Debian 13/Qt 6.5+, baixa
+  `libxcb-cursor0` **sem root** num cache local (`~/.cache/unuser/lib`) e lança a GUI.
+
 ## Roadmap
 
 Fases 1–6 ✓ (cripto · chunker+índice · manifesto · servidor cofre-cego+mTLS · motor de
-sync+CLI · GUI PySide6 (threaded) + SOCKS5/Tor · empacotamento `unuserd` .deb/systemd).
-Pendências de refino: salt cross-máquina, streaming no chunker, e um `.deb` para o
-cliente. Acesso remoto é **Tor** (sem VPN).
+sync+CLI · GUI PySide6 (threaded) + SOCKS5/Tor · empacotamento `unuserd`/`unuser`
+.deb/systemd). Refinos concluídos: salt cross-máquina, streaming no chunker, `.deb` do
+cliente, **block_id por arquivo**, e a repaginação da GUI (tema escuro, Explorer de duas
+áreas, adicionar arquivo com auto-registro de pasta, tela de pastas sincronizadas,
+persistência do estado da árvore). Acesso remoto é **Tor** (sem VPN).
