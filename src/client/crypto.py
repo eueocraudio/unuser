@@ -50,6 +50,7 @@ _INFO_KEK = b"unuser:v1:kek"
 _INFO_NAME = b"unuser:v1:name"
 _INFO_MANIFEST = b"unuser:v1:manifest"
 _INFO_BLOCK_ID = b"unuser:v1:block-id"
+_INFO_FILE_BLOCK_ID = b"unuser:v1:file-block-id"
 
 # AAD (dados autenticados) para separar contextos de cifragem.
 _AAD_FK = b"unuser:v1:wrapped-fk"
@@ -167,6 +168,21 @@ def unwrap_file_key(kek: bytes, wrapped_fk: bytes) -> bytes:
 
 
 # --- identificação de bloco e hash de conteúdo ------------------------------
+
+def derive_block_id_key(block_id_key: bytes, fk: bytes) -> bytes:
+    """Chave de ``block_id`` **por arquivo**, derivada do ``block_id_key`` do cofre + a FK.
+
+    A FK é exclusiva de cada arquivo, mas o ``block_id`` (HMAC) e o blob no servidor são
+    **endereçados por conteúdo**. Com uma chave global, um bloco de conteúdo idêntico em
+    dois arquivos geraria o **mesmo** ``block_id`` e colapsaria num único blob — cifrado
+    com a FK de apenas um deles (o outro arquivo ficaria **irrecuperável** ao decifrar).
+    Ligando a chave do id à FK, blocos iguais em arquivos diferentes recebem ids
+    diferentes; dentro do **mesmo** arquivo (mesma FK) blocos iguais ainda colapsam,
+    preservando a dedup intra-arquivo. Determinístico entre máquinas: a FK viaja
+    (embrulhada) no manifesto, então o mesmo arquivo deriva a mesma chave em qualquer nó.
+    """
+    return _hkdf(fk, info=_INFO_FILE_BLOCK_ID, salt=block_id_key)
+
 
 def block_id(block_id_key: bytes, block: bytes) -> str:
     """Identificador determinístico e com chave de um bloco (deduplicação).
