@@ -145,10 +145,13 @@ class VaultSession:
             fk = crypto.generate_file_key()
         # Streaming: chunka/cifra/envia um bloco por vez; guarda só id+tamanho (não os
         # dados) e hasheia incrementalmente para verificar o content_hash no fim.
+        # block_id é POR ARQUIVO (ligado à FK): blocos iguais em arquivos diferentes não
+        # colidem no mesmo blob — senão um deles ficaria cifrado com a FK do outro.
+        bik = crypto.derive_block_id_key(self.keyring.block_id_key, fk)
         hasher = crypto.content_hasher()
         refs: list[BlockRef] = []
         with open(sf.abspath, "rb") as f:
-            for b in chunker.split_stream(f, self.keyring.block_id_key):
+            for b in chunker.split_stream(f, bik):
                 hasher.update(b.data)
                 if not self.index.has_block(b.block_id):   # dedup: pula o que já está no cofre
                     self.client.put_blob(b.block_id, crypto.encrypt(fk, b.data))

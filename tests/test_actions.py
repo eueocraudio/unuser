@@ -134,9 +134,37 @@ def test_dedup_nao_reenvia_bloco_conhecido(tmp_path, keyring):
         A = Machine(tmp_path / "A", port, keyring, "pc-A")
         data = b"bloco repetido " * 300
         A.session.send(A.write("a.txt", data))
-        blocos = [b.block_id for b in chunker.split(data, keyring.block_id_key)]
+        # block_id é por-arquivo (ligado à FK), então recomputa com a mesma chave derivada.
+        mani = A.manifest()
+        fm = mani.file_by_path("Documentos/a.txt")
+        bik = crypto.derive_block_id_key(keyring.block_id_key, mani.file_key(fm, keyring.kek))
+        blocos = [b.block_id for b in chunker.split(data, bik)]
         assert all(A.index.has_block(b) for b in blocos)   # base local conhece os blocos
         assert store.list_blobs()                          # e o servidor os guardou
+
+
+def test_blocos_iguais_em_arquivos_diferentes_nao_corrompem(tmp_path, keyring):
+    """Regressão: dois arquivos de conteúdo idêntico compartilhariam o block_id sob uma
+    chave global e colapsariam num único blob — cifrado com a FK de só um deles, deixando
+    o outro IRRECUPERÁVEL. Com block_id por-arquivo (ligado à FK) cada um tem seu blob."""
+    store = BlindStorage(tmp_path / "vault")
+    with running(store) as port:
+        A = Machine(tmp_path / "A", port, keyring, "pc-A")
+        B = Machine(tmp_path / "B", port, keyring, "pc-B")
+
+        data = b"conteudo duplicado " * 500            # mesmo conteúdo nos dois arquivos
+        A.session.send(A.write("a.txt", data))
+        A.session.send(A.write("b.txt", data))
+
+        # FKs distintas ⇒ block_ids (e blobs) distintos, sem colisão entre arquivos.
+        mani = A.manifest()
+        fa = mani.file_by_path("Documentos/a.txt")
+        fb = mani.file_by_path("Documentos/b.txt")
+        assert set(fa.current.blocks).isdisjoint(fb.current.blocks)
+
+        # B remonta AMBOS sem erro (antes da correção, o segundo dava IntegrityError).
+        assert B.session.receive("Documentos/a.txt").read_bytes() == data
+        assert B.session.receive("Documentos/b.txt").read_bytes() == data
 
 
 # --- conflito (CAS) ----------------------------------------------------------
