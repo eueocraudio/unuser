@@ -21,7 +21,7 @@ from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
 
-from . import config, crypto, manifest
+from . import config, crypto, manifest, scanner
 from .actions import NothingToReceive, VaultSession
 from .index import Index
 from .sync import FileStatus, SyncEngine
@@ -153,6 +153,22 @@ def cmd_gui(args) -> int:
         def delete(self, paths):
             for p in paths:
                 session.delete(p)
+
+        def add(self, local_paths):
+            resolver = content.path_resolver()
+            sfs = []
+            for lp in local_paths:
+                vp = resolver.vault_path_for(lp)
+                if vp is None:
+                    raise ValueError(
+                        f"{lp}: fora das pastas sincronizadas — adicione a pasta no dirs.json"
+                    )
+                sfs.append(scanner.scan_one(lp, vp))
+            session.send_many(sfs)
+
+        def add_start_dir(self):
+            dirs = content.default_dirs
+            return str(dirs[0][0]) if dirs else str(_HOME)
 
         def connection_label(self):
             if conn.mode == "tor":

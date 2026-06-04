@@ -121,6 +121,18 @@ def scan_root(root: Path, *, recursive: bool, ignore: IgnoreRules,
     return out
 
 
+def scan_one(path, vault_path: str) -> ScannedFile:
+    """Constrói o :class:`ScannedFile` de **um** arquivo já com o ``vault_path`` dado.
+
+    Usado para "adicionar ao cofre" um arquivo escolhido na GUI: o chamador resolve o
+    ``vault_path`` (via :meth:`PathResolver.vault_path_for`) e aqui só lemos os metadados
+    e o ``content_hash`` (em streaming).
+    """
+    p = Path(path)
+    size, mtime, mode, h = _file_meta(p)
+    return ScannedFile(vault_path, str(p), size, mtime, mode, h)
+
+
 def scan(dirs, extra_items=(), *, ignore: IgnoreRules | None = None
          ) -> dict[str, ScannedFile]:
     """Varre as raízes (``[(path, recursive), ...]``) + itens avulsos.

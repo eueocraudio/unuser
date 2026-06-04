@@ -1,8 +1,10 @@
-"""GUI do cliente unuser — estilo Windows XP Explorer / Luna (PySide6 + QSS).
+"""GUI do cliente unuser — Explorer de duas áreas em tema escuro (PySide6 + QSS).
 
-Visual da §5: painel de tarefas à esquerda com cabeçalhos em gradiente azul, árvore de
-arquivos com as 6 cores de status (§7.1) e as ações da §7.2 na barra/menu de contexto.
-O visual é homenagem estética — sem ícones/imagens proprietários.
+Layout estilo Explorer (§5): à **esquerda** uma árvore de **pastas** (TreeView
+hierárquica, com a raiz "Cofre"); à **direita** a **lista de arquivos** da pasta
+selecionada, cada um com a sua cor de status (§7.1). As ações da §7.2 ficam na barra de
+ferramentas e no menu de contexto da lista. Paleta escura; sem ícones/imagens
+proprietários.
 
 A janela é desacoplada da rede: recebe um *controller* com os métodos
 ``status() -> list[FileState]``, ``send/receive/delete(paths)`` e ``connection_label()``.
@@ -15,41 +17,43 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QAction, QBrush, QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QFrame, QLabel, QMainWindow, QMenu, QMessageBox,
-    QPushButton, QStatusBar, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QLabel, QMainWindow, QMenu, QMessageBox,
+    QSplitter, QStatusBar, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .sync import FileState, FileStatus
 
-# As 6 cores de status (§7.1) — tons que combinam com o tema Luna.
+_ROLE = Qt.ItemDataRole.UserRole
+
+# As 6 cores de status (§7.1) — tons vivos, legíveis sobre o fundo escuro.
 STATUS_COLORS: dict[FileStatus, str] = {
-    FileStatus.IN_SYNC: "#2e7d32",          # verde
-    FileStatus.LOCAL_MODIFIED: "#e65100",   # laranja
-    FileStatus.SERVER_MODIFIED: "#1565c0",  # azul
-    FileStatus.CONFLICT: "#c62828",         # vermelho
-    FileStatus.LOCAL_ONLY: "#00695c",       # teal
-    FileStatus.SERVER_ONLY: "#6a1b9a",      # roxo
+    FileStatus.IN_SYNC: "#66bb6a",          # verde
+    FileStatus.LOCAL_MODIFIED: "#ffa726",   # laranja
+    FileStatus.SERVER_MODIFIED: "#42a5f5",  # azul
+    FileStatus.CONFLICT: "#ef5350",         # vermelho
+    FileStatus.LOCAL_ONLY: "#26c6da",       # teal
+    FileStatus.SERVER_ONLY: "#ab47bc",      # roxo
 }
 
-# Cromagem azul/verde do Luna: gradientes nas barras e cabeçalhos arredondados.
-LUNA_QSS = """
-QMainWindow, QWidget { background: #ece9d8; font-family: "Tahoma", "DejaVu Sans"; font-size: 11px; }
-QToolBar { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #3a6ea5, stop:1 #1c3d6e);
-           border-bottom: 1px solid #0a246a; spacing: 4px; padding: 3px; }
-QToolBar QToolButton, QToolBar QLabel { color: white; padding: 3px 8px; }
-QToolBar QToolButton:hover { background: #5a8fce; border-radius: 3px; }
-QFrame#taskPane { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #6f9ee8, stop:1 #c5d9f1); }
-QLabel.sectionHeader { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #4d80c8, stop:1 #2a5db0);
-           color: white; font-weight: bold; padding: 4px 8px; border-top-left-radius: 6px;
-           border-top-right-radius: 6px; }
-QFrame.section { background: #d6e5f9; border: 1px solid #a6c0e3; border-radius: 6px; margin: 4px; }
-QFrame.section QPushButton { background: transparent; border: none; color: #14387f; text-align: left;
-           padding: 3px 10px; }
-QFrame.section QPushButton:hover { color: #ec7a08; text-decoration: underline; }
-QTreeWidget { background: white; border: 1px solid #7f9db9; }
-QHeaderView::section { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #f4f3ee, stop:1 #d4d0c8);
-           padding: 3px; border: 1px solid #aca899; }
-QStatusBar { background: #ece9d8; }
+# Tema escuro: fundos grafite, texto claro, acentos em azul.
+DARK_QSS = """
+QMainWindow, QWidget { background: #232629; color: #d6d6d6; font-family: "Tahoma", "DejaVu Sans"; font-size: 11px; }
+QToolBar { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #3a3d42, stop:1 #26282c);
+           border-bottom: 1px solid #15171a; spacing: 4px; padding: 3px; }
+QToolBar QToolButton, QToolBar QLabel { color: #eaeaea; padding: 3px 8px; }
+QToolBar QToolButton:hover { background: #3f5e8c; border-radius: 3px; }
+QToolBar QToolButton:disabled { color: #7a7d82; }
+QTreeWidget { background: #1b1d20; alternate-background-color: #232629; color: #d6d6d6;
+           border: 1px solid #3c4046; outline: 0; }
+QTreeWidget::item { padding: 1px 0; }
+QTreeWidget::item:selected { background: #094771; color: #ffffff; }
+QTreeWidget::branch:selected { background: #094771; }
+QHeaderView::section { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #33363b, stop:1 #2a2c30);
+           color: #d6d6d6; padding: 3px; border: 1px solid #45494f; }
+QSplitter::handle { background: #2a2d31; }
+QMenu { background: #2a2d31; color: #d6d6d6; border: 1px solid #45494f; }
+QMenu::item:selected { background: #094771; color: #ffffff; }
+QStatusBar { background: #26282c; color: #cfd2d6; }
 """
 
 _ACTIONS = [
@@ -81,36 +85,19 @@ class _Worker(QRunnable):
             self.signals.failed.emit(f"{type(e).__name__}: {e}")
 
 
-def _section(title: str, buttons: list[tuple[str, callable]]) -> QFrame:
-    """Uma seção recolhível do painel de tarefas (cabeçalho azul + links)."""
-    frame = QFrame()
-    frame.setProperty("class", "section")
-    frame.setObjectName("section")
-    lay = QVBoxLayout(frame)
-    lay.setContentsMargins(0, 0, 0, 6)
-    lay.setSpacing(1)
-    header = QLabel(title)
-    header.setProperty("class", "sectionHeader")
-    lay.addWidget(header)
-    for label, slot in buttons:
-        b = QPushButton(label)
-        b.clicked.connect(slot)
-        lay.addWidget(b)
-    return frame
-
-
 class MainWindow(QMainWindow):
     def __init__(self, controller, *, async_run: bool = True):
         super().__init__()
         self.controller = controller
         self._async = async_run                          # False nos testes (determinístico)
         self._busy = False
+        self._states: list[FileState] = []               # último status conhecido
         self._workers: set = set()                       # mantém refs vivas até concluírem
         self._pool = QThreadPool(self)
         self._pool.setMaxThreadCount(1)                  # serializa: 1 operação por vez
         self.setWindowTitle("unuser — Cofre")
         self.resize(820, 520)
-        self.setStyleSheet(LUNA_QSS)
+        self.setStyleSheet(DARK_QSS)
 
         self._build_toolbar()
         self._build_body()
@@ -131,42 +118,26 @@ class MainWindow(QMainWindow):
             tb.addAction(act)
             self._actions[key] = act
         tb.addSeparator()
+        add_act = QAction("Adicionar arquivo", self)
+        add_act.setToolTip("Escolher um arquivo (numa pasta sincronizada) e enviá-lo ao cofre")
+        add_act.triggered.connect(self._pick_and_add)
+        tb.addAction(add_act)
+        self._actions["add"] = add_act
+        tb.addSeparator()
         self.conn_label = QLabel(f"  {self._safe(self.controller.connection_label)}")
         tb.addWidget(self.conn_label)
 
     def _build_body(self) -> None:
-        central = QWidget()
-        root = QVBoxLayout(central)
-        root.setContentsMargins(0, 0, 0, 0)
+        split = QSplitter(Qt.Orientation.Horizontal)
 
-        body = QWidget()
-        from PySide6.QtWidgets import QHBoxLayout
-        h = QHBoxLayout(body)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(0)
+        # esquerda: árvore de PASTAS
+        self.folder_tree = QTreeWidget()
+        self.folder_tree.setHeaderLabel("Pastas")
+        self.folder_tree.setColumnCount(1)
+        self.folder_tree.itemSelectionChanged.connect(self._on_folder_selected)
+        split.addWidget(self.folder_tree)
 
-        # painel de tarefas (esquerda)
-        pane = QFrame()
-        pane.setObjectName("taskPane")
-        pane.setFixedWidth(210)
-        pv = QVBoxLayout(pane)
-        pv.setContentsMargins(0, 6, 0, 6)
-        pv.addWidget(_section("Tarefas de arquivo e pasta", [
-            ("Enviar para o servidor", lambda: self._run("send")),
-            ("Receber do servidor", lambda: self._run("receive")),
-            ("Apagar", lambda: self._run("delete")),
-        ]))
-        pv.addWidget(_section("Outros locais", [
-            ("Atualizar comparação", lambda: self._run("atualizar")),
-        ]))
-        self._details = QLabel("Detalhes:\nnenhum item selecionado")
-        det = _section("Detalhes", [])
-        det.layout().addWidget(self._details)
-        pv.addWidget(det)
-        pv.addStretch(1)
-        h.addWidget(pane)
-
-        # árvore de arquivos (direita)
+        # direita: LISTA de arquivos da pasta selecionada
         self.tree = QTreeWidget()
         self.tree.setColumnCount(2)
         self.tree.setHeaderLabels(["Arquivo", "Status"])
@@ -176,27 +147,84 @@ class MainWindow(QMainWindow):
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._context_menu)
         self.tree.itemSelectionChanged.connect(self._update_details)
-        h.addWidget(self.tree, 1)
+        split.addWidget(self.tree)
 
-        root.addWidget(body)
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
+        split.setSizes([220, 600])
+
+        central = QWidget()
+        lay = QVBoxLayout(central)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(split)
         self.setCentralWidget(central)
 
-    # --- dados --------------------------------------------------------------
+    # --- dados / navegação --------------------------------------------------
 
     def set_states(self, states: list[FileState]) -> None:
-        """Popula a árvore com os status, cada um na sua cor."""
+        """Recebe o status do cofre, monta a árvore de pastas e mostra a pasta atual."""
+        self._states = list(states)
+        self._rebuild_folder_tree()
+        self._set_status_text(f"{len(self._states)} item(ns)")
+
+    def _rebuild_folder_tree(self) -> None:
+        """(Re)constrói a árvore de pastas a partir dos caminhos de cofre conhecidos."""
+        self.folder_tree.clear()
+        root = QTreeWidgetItem(["Cofre"])
+        root.setData(0, _ROLE, "")                       # "" = raiz (todos os arquivos)
+        self.folder_tree.addTopLevelItem(root)
+        nodes: dict[str, QTreeWidgetItem] = {"": root}
+        for folder in sorted(self._folders()):
+            parts = folder.split("/")
+            parent = nodes.get("/".join(parts[:-1]), root)
+            item = QTreeWidgetItem([parts[-1]])
+            item.setData(0, _ROLE, folder)
+            parent.addChild(item)
+            nodes[folder] = item
+        self.folder_tree.expandAll()
+        self.folder_tree.setCurrentItem(root)            # seleciona a raiz → mostra tudo
+        self._show_folder("")
+
+    def _folders(self) -> set[str]:
+        """Conjunto de todas as pastas (e ancestrais) presentes nos caminhos atuais."""
+        out: set[str] = set()
+        for st in self._states:
+            parts = st.vault_path.split("/")[:-1]        # tira o nome do arquivo
+            for i in range(1, len(parts) + 1):
+                out.add("/".join(parts[:i]))
+        return out
+
+    def _current_folder(self) -> str:
+        it = self.folder_tree.currentItem()
+        return "" if it is None else (it.data(0, _ROLE) or "")
+
+    def _on_folder_selected(self) -> None:
+        self._show_folder(self._current_folder())
+
+    def _show_folder(self, folder: str) -> None:
+        """Popula a lista da direita com os arquivos contidos em ``folder`` (recursivo;
+        raiz = todos). Cada arquivo na sua cor de status."""
         self.tree.clear()
-        for st in states:
-            item = QTreeWidgetItem([st.vault_path, st.status.value])
-            color = QColor(STATUS_COLORS.get(st.status, "#000000"))
-            item.setForeground(1, QBrush(color))
-            item.setData(0, Qt.ItemDataRole.UserRole, st)
+        prefix = f"{folder}/" if folder else ""
+        for st in self._states:
+            if folder and not st.vault_path.startswith(prefix):
+                continue
+            rel = st.vault_path[len(prefix):]            # exibe relativo à pasta selecionada
+            item = QTreeWidgetItem([rel, st.status.value])
+            item.setForeground(1, QBrush(QColor(STATUS_COLORS.get(st.status, "#d6d6d6"))))
+            item.setData(0, _ROLE, st)                   # FileState completo (path absoluto)
             self.tree.addTopLevelItem(item)
         self.tree.resizeColumnToContents(0)
-        self._set_status_text(f"{len(states)} item(ns)")
+        self._update_details()
 
     def selected_paths(self) -> list[str]:
-        return [it.text(0) for it in self.tree.selectedItems()]
+        """Caminhos de cofre dos arquivos selecionados na lista da direita."""
+        out: list[str] = []
+        for it in self.tree.selectedItems():
+            st: FileState | None = it.data(0, _ROLE)
+            if st is not None:
+                out.append(st.vault_path)
+        return out
 
     # --- ações --------------------------------------------------------------
 
@@ -216,6 +244,26 @@ class MainWindow(QMainWindow):
             return self.controller.status()                # já devolve o novo estado
 
         self._submit(work, self.set_states, f"{key}: {len(paths)} item(ns)")
+
+    def _pick_and_add(self) -> None:
+        """Abre um seletor de arquivos e adiciona os escolhidos ao cofre."""
+        if self._busy:
+            return
+        from PySide6.QtWidgets import QFileDialog
+        start = self._safe(getattr(self.controller, "add_start_dir", lambda: ""))
+        files, _ = QFileDialog.getOpenFileNames(self, "Adicionar arquivo ao cofre", start)
+        self.add_files(files)
+
+    def add_files(self, local_paths: list[str]) -> None:
+        """Envia ao cofre os arquivos locais escolhidos (via ``controller.add``)."""
+        if self._busy or not local_paths:
+            return
+
+        def work():
+            self.controller.add(local_paths)               # mapeia p/ vault path e envia
+            return self.controller.status()
+
+        self._submit(work, self.set_states, f"adicionado(s) {len(local_paths)} arquivo(s)")
 
     def _submit(self, fn, on_done, done_msg: str) -> None:
         """Executa ``fn`` fora da thread da UI e entrega o resultado a ``on_done`` na UI."""
@@ -265,10 +313,13 @@ class MainWindow(QMainWindow):
     def _update_details(self) -> None:
         items = self.tree.selectedItems()
         if not items:
-            self._details.setText("Detalhes:\nnenhum item selecionado")
+            self._set_status_text(f"{self.tree.topLevelItemCount()} item(ns)")
             return
-        st: FileState = items[0].data(0, Qt.ItemDataRole.UserRole)
-        self._details.setText(f"Detalhes:\n{st.vault_path}\nstatus: {st.status.value}")
+        if len(items) == 1:
+            st: FileState = items[0].data(0, _ROLE)
+            self._set_status_text(f"{st.vault_path} — {st.status.value}")
+        else:
+            self._set_status_text(f"{len(items)} selecionados")
 
     # --- util ---------------------------------------------------------------
 

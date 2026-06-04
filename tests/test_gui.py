@@ -41,6 +41,9 @@ class FakeController:
     def delete(self, paths):
         self.calls.append(("delete", paths))
 
+    def add(self, local_paths):
+        self.calls.append(("add", local_paths))
+
     def connection_label(self):
         return "Direto 127.0.0.1:8443"
 
@@ -63,6 +66,55 @@ def test_janela_constroi_e_popula_com_cores(app):
         assert item.foreground(1).color().name() == STATUS_COLORS[st.status]
 
 
+def _iter_folder_items(win):
+    stack = [win.folder_tree.topLevelItem(0)]
+    while stack:
+        it = stack.pop()
+        if it is None:
+            continue
+        yield it
+        for i in range(it.childCount()):
+            stack.append(it.child(i))
+
+
+def _folder_paths(win):
+    return {it.data(0, Qt.ItemDataRole.UserRole) for it in _iter_folder_items(win)}
+
+
+def _select_folder(win, path):
+    for it in _iter_folder_items(win):
+        if it.data(0, Qt.ItemDataRole.UserRole) == path:
+            win.folder_tree.setCurrentItem(it)           # dispara o filtro da lista
+            return
+    raise AssertionError(f"pasta não encontrada: {path!r}")
+
+
+def test_arvore_de_pastas_filtra_a_lista(app):
+    states = [
+        FileState("Documents/a.txt", FileStatus.IN_SYNC, "h", "h", "h"),
+        FileState("Documents/sub/b.txt", FileStatus.LOCAL_MODIFIED, "h2", "h", "h"),
+        FileState("Fotos/c.png", FileStatus.SERVER_ONLY, None, None, "h"),
+    ]
+    win = MainWindow(FakeController(states), async_run=False)
+    win.set_states(states)
+
+    # raiz "Cofre" selecionada por padrão → lista mostra TODOS os arquivos
+    assert win.tree.topLevelItemCount() == 3
+    # a árvore de pastas tem a raiz ("") + todas as pastas e ancestrais
+    assert _folder_paths(win) == {"", "Documents", "Documents/sub", "Fotos"}
+
+    # selecionar "Documents" filtra a lista para os arquivos sob ela (relativos à pasta)
+    _select_folder(win, "Documents")
+    rels = {win.tree.topLevelItem(i).text(0) for i in range(win.tree.topLevelItemCount())}
+    assert rels == {"a.txt", "sub/b.txt"}
+
+    # selecionar "Fotos" → só c.png; o path absoluto fica preservado no FileState
+    _select_folder(win, "Fotos")
+    assert win.tree.topLevelItemCount() == 1
+    st = win.tree.topLevelItem(0).data(0, Qt.ItemDataRole.UserRole)
+    assert st.vault_path == "Fotos/c.png"
+
+
 def test_acoes_chamam_o_controller(app):
     ctrl = FakeController(_all_status_states())
     win = MainWindow(ctrl, async_run=False)
@@ -78,6 +130,19 @@ def test_acoes_chamam_o_controller(app):
     win.tree.selectAll()                               # ação repopula e limpa a seleção
     win._run("delete")
     assert ("delete", paths) in ctrl.calls
+
+
+def test_adicionar_arquivo_chama_o_controller(app):
+    ctrl = FakeController(_all_status_states())
+    win = MainWindow(ctrl, async_run=False)
+
+    win.add_files(["/home/user/Documents/novo.txt"])
+    assert ("add", ["/home/user/Documents/novo.txt"]) in ctrl.calls
+    # após adicionar, a lista é repopulada a partir do status()
+    assert win.tree.topLevelItemCount() == len(FileStatus)
+
+    win.add_files([])                                      # nada escolhido → no-op
+    assert sum(1 for c in ctrl.calls if c[0] == "add") == 1
 
 
 def test_atualizar_busca_do_controller(app):
