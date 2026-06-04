@@ -68,11 +68,11 @@ def _unlock(client, index: Index, keyfile_path) -> tuple[crypto.Keyring, bytes]:
     return kr, salt
 
 
-def _build(args) -> tuple[config.ContentConfig, Index, VaultSession]:
+def _build(args, *, same_thread: bool = True) -> tuple[config.ContentConfig, Index, VaultSession]:
     conn = config.ConnConfig.from_env(args.env)
     content = config.ContentConfig.from_json(args.dirs)
     Path(args.index).parent.mkdir(parents=True, exist_ok=True)
-    index = Index(args.index)
+    index = Index(args.index, check_same_thread=same_thread)
     client = conn.make_client()
     kr, salt = _unlock(client, index, args.keyfile or os.environ.get("UNUSER_KEYFILE"))
     session = VaultSession(
@@ -131,7 +131,8 @@ def cmd_delete(args) -> int:
 
 def cmd_gui(args) -> int:
     from . import gui                                  # import tardio: PySide6 só no modo GUI
-    content, index, session = _build(args)
+    # same_thread=False: a GUI roda as operações num pool de 1 thread (serializado).
+    content, index, session = _build(args, same_thread=False)
     conn = config.ConnConfig.from_env(args.env)
     engine = SyncEngine(index)
 

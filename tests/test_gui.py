@@ -51,7 +51,7 @@ def _all_status_states():
 
 def test_janela_constroi_e_popula_com_cores(app):
     ctrl = FakeController(_all_status_states())
-    win = MainWindow(ctrl)
+    win = MainWindow(ctrl, async_run=False)
     win.set_states(ctrl.status())
 
     assert win.tree.topLevelItemCount() == len(FileStatus)
@@ -65,7 +65,7 @@ def test_janela_constroi_e_popula_com_cores(app):
 
 def test_acoes_chamam_o_controller(app):
     ctrl = FakeController(_all_status_states())
-    win = MainWindow(ctrl)
+    win = MainWindow(ctrl, async_run=False)
     win.set_states(ctrl.status())
 
     win.tree.selectAll()
@@ -82,8 +82,44 @@ def test_acoes_chamam_o_controller(app):
 
 def test_atualizar_busca_do_controller(app):
     ctrl = FakeController(_all_status_states())
-    win = MainWindow(ctrl)
+    win = MainWindow(ctrl, async_run=False)
     win.tree.clear()
     assert win.tree.topLevelItemCount() == 0
     win._run("atualizar")                               # deve repopular a partir do status()
+    assert win.tree.topLevelItemCount() == len(FileStatus)
+
+
+class SlowController(FakeController):
+    """status() bloqueia até ser liberado — simula rede lenta (Tor)."""
+
+    def __init__(self, states):
+        super().__init__(states)
+        import threading
+        self.gate = threading.Event()
+
+    def status(self):
+        self.gate.wait(timeout=5)
+        return self._states
+
+
+def test_operacao_nao_bloqueia_a_ui(app):
+    """Com async_run=True, _run retorna na hora (UI livre) e fica 'ocupado' até o worker
+    terminar — provando que a chamada de rede não roda na thread da UI."""
+    import time
+
+    from PySide6.QtCore import QCoreApplication
+
+    ctrl = SlowController(_all_status_states())
+    win = MainWindow(ctrl, async_run=True)
+
+    win._run("atualizar")                               # dispara no pool e retorna já
+    assert win._busy is True                            # UI não ficou presa esperando
+
+    ctrl.gate.set()                                     # libera o "trabalho lento"
+    deadline = time.time() + 5
+    while win._busy and time.time() < deadline:         # bombeia eventos até o sinal chegar
+        QCoreApplication.processEvents()
+        time.sleep(0.01)
+
+    assert win._busy is False
     assert win.tree.topLevelItemCount() == len(FileStatus)

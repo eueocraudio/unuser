@@ -69,8 +69,10 @@ def _now() -> str:
 class Index:
     """Acesso ao índice SQLite. Use como context manager ou chame ``close()``."""
 
-    def __init__(self, db_path):
-        self.conn = sqlite3.connect(str(db_path))
+    def __init__(self, db_path, *, check_same_thread: bool = True):
+        # check_same_thread=False permite usar a conexão de uma thread de trabalho (GUI);
+        # o acesso deve ser serializado por quem chama (a GUI usa um pool de 1 thread).
+        self.conn = sqlite3.connect(str(db_path), check_same_thread=check_same_thread)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         self.conn.executescript(_SCHEMA)

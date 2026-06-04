@@ -201,9 +201,13 @@ Janela PySide6 estilo XP Explorer/Luna (§5), via QSS (`LUNA_QSS`) — sem asset
 proprietários. `MainWindow` recebe um **controller** desacoplado da rede
 (`status()`/`send`/`receive`/`delete(paths)`/`connection_label()`), exibe a árvore com as
 6 cores de status (`STATUS_COLORS`), o painel de tarefas à esquerda e as ações na barra +
-menu de contexto. Lançada por `unuser gui` (import tardio do PySide6, dep opcional
-`gui`). Testável sem display: `tests/test_gui.py` usa `QT_QPA_PLATFORM=offscreen` +
-controller falso.
+menu de contexto. As operações rodam **fora da thread da UI** (`_Worker`/`QThreadPool` de
+1 thread → serializado; resultado entregue por sinal na thread da UI), com estado
+"ocupado" (cursor + ações desabilitadas) — não trava em rede lenta via Tor. O índice da
+GUI usa `check_same_thread=False` (acesso serializado pelo pool). Lançada por `unuser gui`
+(import tardio do PySide6, dep opcional `gui`). Testável sem display:
+`tests/test_gui.py` usa `QT_QPA_PLATFORM=offscreen` + controller falso
+(`async_run=False` p/ determinismo; um teste exercita o caminho threaded).
 
 ## Empacotamento (`packaging/`)
 
@@ -217,6 +221,6 @@ instala-se por `pip install -e ".[gui]"` — ver `packaging/README.md`.
 ## Roadmap
 
 Fases 1–6 ✓ (cripto · chunker+índice · manifesto · servidor cofre-cego+mTLS · motor de
-sync+CLI · GUI PySide6 + SOCKS5/Tor · empacotamento `unuserd` .deb/systemd). Pendências
-de refino: threading na GUI (rede lenta), salt cross-máquina, retry no `ConflictError`,
-e um `.deb` para o cliente. Acesso remoto é **Tor** (sem VPN).
+sync+CLI · GUI PySide6 (threaded) + SOCKS5/Tor · empacotamento `unuserd` .deb/systemd).
+Pendências de refino: salt cross-máquina, retry no `ConflictError`, e um `.deb` para o
+cliente. Acesso remoto é **Tor** (sem VPN).

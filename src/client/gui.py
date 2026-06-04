@@ -12,7 +12,7 @@ Isso mantém a GUI testável sem servidor (ver ``tests/test_gui.py``). A fiaçã
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QAction, QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QFrame, QLabel, QMainWindow, QMenu, QMessageBox,
@@ -60,6 +60,27 @@ _ACTIONS = [
 ]
 
 
+class _WorkerSignals(QObject):
+    done = Signal(object)
+    failed = Signal(str)
+
+
+class _Worker(QRunnable):
+    """Roda ``fn()`` numa thread do pool e devolve o resultado/erro por sinal (entregue
+    na thread da UI). É como a GUI não trava enquanto a rede (Tor) responde."""
+
+    def __init__(self, fn):
+        super().__init__()
+        self._fn = fn
+        self.signals = _WorkerSignals()
+
+    def run(self) -> None:
+        try:
+            self.signals.done.emit(self._fn())
+        except Exception as e:                          # qualquer erro vai para a UI
+            self.signals.failed.emit(f"{type(e).__name__}: {e}")
+
+
 def _section(title: str, buttons: list[tuple[str, callable]]) -> QFrame:
     """Uma seção recolhível do painel de tarefas (cabeçalho azul + links)."""
     frame = QFrame()
@@ -79,9 +100,14 @@ def _section(title: str, buttons: list[tuple[str, callable]]) -> QFrame:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, controller):
+    def __init__(self, controller, *, async_run: bool = True):
         super().__init__()
         self.controller = controller
+        self._async = async_run                          # False nos testes (determinístico)
+        self._busy = False
+        self._workers: set = set()                       # mantém refs vivas até concluírem
+        self._pool = QThreadPool(self)
+        self._pool.setMaxThreadCount(1)                  # serializa: 1 operação por vez
         self.setWindowTitle("unuser — Cofre")
         self.resize(820, 520)
         self.setStyleSheet(LUNA_QSS)
@@ -175,20 +201,58 @@ class MainWindow(QMainWindow):
     # --- ações --------------------------------------------------------------
 
     def _run(self, key: str) -> None:
-        try:
-            if key == "atualizar":
-                self.set_states(self.controller.status())
-                return
-            paths = self.selected_paths()
-            if not paths:
-                self._set_status_text("selecione ao menos um arquivo")
-                return
-            getattr(self.controller, key)(paths)
-            self.set_states(self.controller.status())     # reflete o novo estado
-            self._set_status_text(f"{key}: {len(paths)} item(ns)")
-        except Exception as e:                              # erro de rede/cripto → diálogo
-            QMessageBox.critical(self, "Erro", f"{type(e).__name__}: {e}")
-            self._set_status_text("erro")
+        if self._busy:                                     # uma operação por vez
+            return
+        if key == "atualizar":
+            self._submit(self.controller.status, self.set_states, "atualizado")
+            return
+        paths = self.selected_paths()
+        if not paths:
+            self._set_status_text("selecione ao menos um arquivo")
+            return
+
+        def work():
+            getattr(self.controller, key)(paths)           # ação (pode demorar via Tor)
+            return self.controller.status()                # já devolve o novo estado
+
+        self._submit(work, self.set_states, f"{key}: {len(paths)} item(ns)")
+
+    def _submit(self, fn, on_done, done_msg: str) -> None:
+        """Executa ``fn`` fora da thread da UI e entrega o resultado a ``on_done`` na UI."""
+        self._set_busy(True)
+
+        def deliver(result):
+            on_done(result)
+            self._set_busy(False)
+            self._set_status_text(done_msg)
+
+        if not self._async:                                # caminho síncrono (testes)
+            try:
+                deliver(fn())
+            except Exception as e:
+                self._fail(f"{type(e).__name__}: {e}")
+            return
+        worker = _Worker(fn)
+        worker.setAutoDelete(False)                        # nós controlamos o tempo de vida
+        self._workers.add(worker)                          # senão é coletado antes do sinal
+        worker.signals.done.connect(deliver)
+        worker.signals.failed.connect(self._fail)
+        worker.signals.done.connect(lambda *_: self._workers.discard(worker))
+        worker.signals.failed.connect(lambda *_: self._workers.discard(worker))
+        self._pool.start(worker)
+
+    def _fail(self, msg: str) -> None:
+        self._set_busy(False)
+        self._set_status_text("erro")
+        QMessageBox.critical(self, "Erro", msg)
+
+    def _set_busy(self, busy: bool) -> None:
+        self._busy = busy
+        for act in self._actions.values():
+            act.setEnabled(not busy)
+        self.setCursor(Qt.CursorShape.WaitCursor if busy else Qt.CursorShape.ArrowCursor)
+        if busy:
+            self._set_status_text("trabalhando…")
 
     def _context_menu(self, pos) -> None:
         if not self.tree.selectedItems():
@@ -220,12 +284,9 @@ class MainWindow(QMainWindow):
 
 
 def run(controller) -> int:
-    """Sobe a aplicação Qt com a janela principal. Faz um Atualizar inicial."""
+    """Sobe a aplicação Qt com a janela principal e dispara a comparação inicial."""
     app = QApplication.instance() or QApplication([])
     win = MainWindow(controller)
-    try:
-        win.set_states(controller.status())
-    except Exception:
-        pass                                               # deixa abrir mesmo offline
     win.show()
+    win._run("atualizar")                                  # assíncrono: não trava a abertura
     return app.exec()
