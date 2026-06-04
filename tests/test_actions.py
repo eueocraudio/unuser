@@ -59,9 +59,9 @@ class Machine:
         return scanner.scan([(self.root, True)])
 
     def manifest(self):
-        ver, blob = self.session.client.get_manifest()
+        ver, wire = self.session.client.get_manifest()
         from client import manifest as m
-        return None if not blob else m.open_sealed(blob, self.session.keyring.manifest_key)
+        return None if not wire else m.unpack(wire, self.session.keyring.manifest_key)
 
     def status(self):
         eng = SyncEngine(self.index)
@@ -203,9 +203,9 @@ def test_send_refaz_automaticamente_apos_conflito(tmp_path, keyring):
         assert flaky.tentativas == 2
 
         # chegou mesmo ao servidor
-        _, blob = VaultClient("127.0.0.1", port).get_manifest()
+        _, wire = VaultClient("127.0.0.1", port).get_manifest()
         from client import manifest as m
-        vault = m.open_sealed(blob, keyring.manifest_key)
+        vault = m.unpack(wire, keyring.manifest_key)
         assert vault.file_by_path("Documentos/nota.txt") is not None
 
 
@@ -220,3 +220,31 @@ def test_send_desiste_apos_max_retries(tmp_path, keyring):
         with pytest.raises(ConflictError):
             sess.send(sf)
         assert flaky.tentativas == 3                       # tentou exatamente max_retries
+
+
+# --- bootstrap cross-máquina pelo salt publicado no manifesto ----------------
+
+def test_maquina_nova_abre_cofre_pelo_salt_publicado(tmp_path):
+    """Máquina B, sem conhecer o salt, deriva as MESMAS chaves a partir do salt em claro
+    publicado no manifesto e lê o arquivo que A enviou."""
+    from client import manifest
+
+    store = BlindStorage(tmp_path / "vault")
+    with running(store) as port:
+        # Máquina A: gera o salt, deriva as chaves e envia um arquivo.
+        salt_a = crypto.generate_salt()
+        kr_a = crypto.unlock("senha", b"keyfile", salt_a, **FAST)
+        root_a, sess_a = _session(VaultClient("127.0.0.1", port), kr_a, tmp_path / "A", "A")
+        sess_a.salt = salt_a
+        (root_a / "nota.txt").write_bytes(b"conteudo secreto")
+        sess_a.send(scanner.scan([(root_a, True)])["Documentos/nota.txt"])
+
+        # Máquina B: NÃO conhece o salt — pega do manifesto publicado (em claro).
+        _, wire = VaultClient("127.0.0.1", port).get_manifest()
+        salt_b = manifest.peek_salt(wire)
+        assert salt_b == salt_a                            # veio do servidor, sem cópia manual
+
+        kr_b = crypto.unlock("senha", b"keyfile", salt_b, **FAST)
+        root_b, sess_b = _session(VaultClient("127.0.0.1", port), kr_b, tmp_path / "B", "B")
+        dest = sess_b.receive("Documentos/nota.txt")
+        assert dest.read_bytes() == b"conteudo secreto"

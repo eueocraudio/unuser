@@ -87,15 +87,15 @@ class VaultSession:
 
     def _load(self) -> tuple[int, manifest.VaultManifest]:
         """(versão_no_servidor, manifesto). Cofre vazio → manifesto novo na versão 0."""
-        version, blob = self.client.get_manifest()
-        if not blob:
+        version, wire = self.client.get_manifest()
+        if not wire:
             salt = self.salt or crypto.generate_salt()
             return 0, manifest.VaultManifest.new(self.vault_id, salt)
-        return version, manifest.open_sealed(blob, self.keyring.manifest_key)
+        return version, manifest.unpack(wire, self.keyring.manifest_key)
 
     def _commit(self, expected: int, vault: manifest.VaultManifest) -> None:
-        sealed = manifest.seal(vault, self.keyring.manifest_key)
-        self.client.put_manifest(expected, vault.vault_version, sealed)
+        wire = manifest.pack(vault, self.keyring.manifest_key)  # salt em claro + selado
+        self.client.put_manifest(expected, vault.vault_version, wire)
 
     def _apply_with_retry(self, apply) -> manifest.VaultManifest:
         """``load → apply(vault) → CAS``, com **retry automático** em conflito.

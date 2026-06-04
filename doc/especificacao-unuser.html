@@ -222,6 +222,12 @@ por arquivo</strong>. Tudo abaixo está em claro apenas no cliente; no servidor 
 </ul>
 <p>O servidor enxerga apenas: identificadores opacos de blob, bytes cifrados, o blob do manifesto
 e um número de versão monotônico usado para detectar concorrência.</p>
+<p>Exceção deliberada: o <strong>salt do Argon2</strong> viaja <strong>em claro</strong> no cabeçalho
+do manifesto (formato <em>wire</em>: <code>{argon2_salt, sealed}</code>). O salt é parâmetro
+<strong>público</strong> de KDF (não-secreto, como um salt em <code>/etc/shadow</code>) e fica visível
+para que uma máquina nova derive as chaves e abra o cofre sem cópia manual. A segurança continua
+nos <strong>dois fatores</strong> (passphrase + keyfile, que nunca vão ao servidor); adulterar o salt
+em claro só impede a abertura (negação de serviço), não revela conteúdo.</p>
 
 <h3>4.6 Acesso remoto por Tor</h3>
 <ul>

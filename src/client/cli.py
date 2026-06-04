@@ -40,14 +40,12 @@ def _die(msg: str) -> "NoReturn":  # type: ignore[name-defined]
     raise SystemExit(f"unuser: {msg}")
 
 
-def _resolve_salt(index: Index, manifest_present: bool) -> bytes:
+def _local_or_new_salt(index: Index) -> bytes:
+    """Salt para um cofre NOVO: usa o cache local ou gera e persiste."""
     raw = index.get_meta("argon2_salt")
     if raw:
         return base64.b64decode(raw)
-    if manifest_present:
-        _die("salt local ausente para um cofre existente; copie o índice "
-             "(~/.config/unuser/index.db) de uma máquina que já o acessa")
-    salt = crypto.generate_salt()                     # cofre novo: gera e persiste
+    salt = crypto.generate_salt()
     index.set_meta("argon2_salt", base64.b64encode(salt).decode())
     return salt
 
@@ -57,12 +55,16 @@ def _unlock(client, index: Index, keyfile_path) -> tuple[crypto.Keyring, bytes]:
         _die("defina o keyfile com --keyfile ou UNUSER_KEYFILE")
     keyfile = Path(keyfile_path).read_bytes()
     passphrase = os.environ.get("UNUSER_PASSPHRASE") or getpass.getpass("Passphrase: ")
-    _ver, blob = client.get_manifest()
-    salt = _resolve_salt(index, bool(blob))
+    _ver, wire = client.get_manifest()
+    if wire:
+        salt = manifest.peek_salt(wire)               # do servidor, EM CLARO (máquina nova)
+        index.set_meta("argon2_salt", base64.b64encode(salt).decode())  # cacheia
+    else:
+        salt = _local_or_new_salt(index)              # cofre novo
     kr = crypto.unlock(passphrase, keyfile, salt)
-    if blob:                                          # valida cedo: chave abre o manifesto?
+    if wire:                                           # valida cedo: chave abre o manifesto?
         try:
-            manifest.open_sealed(blob, kr.manifest_key)
+            manifest.unpack(wire, kr.manifest_key)
         except InvalidTag:
             _die("passphrase/keyfile incorretos (ou salt divergente)")
     return kr, salt

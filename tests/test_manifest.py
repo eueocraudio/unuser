@@ -188,3 +188,27 @@ def test_rotacao_e_atomica_em_falha(vault, keyring):
     assert vault.kek_epoch == 1                    # nada mudou
     assert fm_ok.wrapped_fk == wrapped_ok_antes    # o arquivo "bom" não foi tocado
     assert fm_ok.wrapped_by_epoch == 1
+
+
+# --- formato wire: salt em claro + selado (bootstrap cross-máquina) ----------
+
+def test_pack_unpack_roundtrip(vault, keyring):
+    _, kr = keyring
+    _record(vault, kr.kek)
+    wire = manifest.pack(vault, kr.manifest_key)
+    assert manifest.unpack(wire, kr.manifest_key).to_dict() == vault.to_dict()
+
+
+def test_peek_salt_le_o_salt_sem_chave(vault, keyring):
+    salt, kr = keyring
+    wire = manifest.pack(vault, kr.manifest_key)
+    assert manifest.peek_salt(wire) == salt            # em claro, sem precisar de chave
+
+
+def test_pack_expoe_salt_mas_nao_vaza_nomes(vault, keyring):
+    _, kr = keyring
+    _record(vault, kr.kek, path="Documentos/segredo-no-nome.txt")
+    wire = manifest.pack(vault, kr.manifest_key)
+    assert b"segredo-no-nome" not in wire               # nomes seguem só na parte selada
+    with pytest.raises(InvalidTag):
+        manifest.unpack(wire, crypto.generate_file_key())  # chave errada não abre

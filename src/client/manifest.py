@@ -307,10 +307,38 @@ def loads(data: bytes) -> VaultManifest:
 
 
 def seal(vault: VaultManifest, manifest_key: bytes) -> bytes:
-    """Serializa e cifra o manifesto com a manifest_key (o que vai ao servidor)."""
+    """Serializa e cifra o manifesto com a manifest_key (parte selada do wire)."""
     return crypto.encrypt(manifest_key, dumps(vault), aad=_AAD_MANIFEST)
 
 
 def open_sealed(blob: bytes, manifest_key: bytes) -> VaultManifest:
     """Decifra e desserializa o manifesto. Levanta InvalidTag se a chave/AAD não baterem."""
     return loads(crypto.decrypt(manifest_key, blob, aad=_AAD_MANIFEST))
+
+
+# --- formato "wire" (o que realmente vai ao servidor) -----------------------
+#
+# O servidor guarda o salt do Argon2 EM CLARO (parâmetro público de KDF, não-secreto) ao
+# lado da parte selada, para que uma máquina nova consiga derivar as chaves e abrir o
+# cofre sem cópia manual do salt. O conteúdo/nomes/chaves continuam só na parte selada —
+# o servidor segue cego para eles (§4.5). Adulterar o salt em claro só causa falha ao
+# abrir (DoS), não vaza nada: a chave derivada não decifra a parte autenticada.
+
+def pack(vault: VaultManifest, manifest_key: bytes) -> bytes:
+    """Empacota o manifesto para o servidor: salt em claro + manifesto selado."""
+    wrapper = {
+        "argon2_salt": vault.argon2_salt,             # base64, em CLARO
+        "sealed": _b64e(seal(vault, manifest_key)),
+    }
+    return json.dumps(wrapper, separators=(",", ":")).encode("utf-8")
+
+
+def peek_salt(wire: bytes) -> bytes:
+    """Lê o salt do Argon2 (em claro) do wire — **sem precisar de chave**. É o que a
+    máquina nova usa para derivar as chaves antes de abrir o manifesto."""
+    return _b64d(json.loads(wire.decode("utf-8"))["argon2_salt"])
+
+
+def unpack(wire: bytes, manifest_key: bytes) -> VaultManifest:
+    """Abre o manifesto a partir do wire (decifra a parte selada)."""
+    return open_sealed(_b64d(json.loads(wire.decode("utf-8"))["sealed"]), manifest_key)

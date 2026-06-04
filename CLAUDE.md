@@ -124,6 +124,12 @@ Pontos-chave:
 - `vault_version` incrementa a cada mutação (base do CAS no servidor, Fase 4).
 - `dumps` é JSON canônico (sort_keys); `seal`/`open_sealed` cifram com a `manifest_key`.
   `ts` é UTC `YYYY-MM-DD HH:MM:SS` (largura fixa → ordena lexicograficamente).
+- **Formato "wire" (o que vai ao servidor):** `pack(vault, manifest_key)` =
+  `{"argon2_salt": <claro>, "sealed": <selado>}`. O salt do Argon2 viaja **em claro**
+  (parâmetro público de KDF, não-secreto) para uma máquina nova derivar as chaves sem
+  cópia manual: `peek_salt(wire)` lê o salt **sem chave**; `unpack(wire, key)` abre o
+  selado. Conteúdo/nomes/chaves seguem só na parte selada (servidor continua cego para
+  eles). Adulterar o salt em claro só causa falha ao abrir (DoS), não vaza nada.
 
 ### Versionamento de FORMATO e migração na leitura
 
@@ -177,11 +183,12 @@ mutam (`actions`).
   `NotImplementedError`, Fase 5); `ContentConfig.from_json` (`dirs.json`) →
   `path_resolver()` e `scan()`.
 - `cli.py` — executável `unuser` (entry point em `pyproject` `[project.scripts]`).
-  Subcomandos `status`/`send`/`receive`/`delete` sobre o `VaultSession`. Passphrase via
-  `getpass` ou `UNUSER_PASSPHRASE`; keyfile via `--keyfile`/`UNUSER_KEYFILE`. **Salt do
-  Argon2** (não-secreto) é guardado no índice (`meta`): cofre novo gera e persiste; cofre
-  existente numa máquina nova exige o salt copiado junto (limitação conhecida do MVP — a
-  alternativa seria publicar o salt em claro no servidor). E2E em `tests/test_cli.py`.
+  Subcomandos `status`/`send`/`receive`/`delete`/`gui` sobre o `VaultSession`. Passphrase
+  via `getpass` ou `UNUSER_PASSPHRASE`; keyfile via `--keyfile`/`UNUSER_KEYFILE`. **Salt do
+  Argon2**: `_unlock` lê o salt do **manifesto publicado** (`peek_salt`, em claro) — uma
+  máquina nova abre o cofre **sem cópia manual**; cofre novo gera o salt (cacheado no
+  índice `meta`). E2E single-machine em `tests/test_cli.py`; cross-máquina em
+  `tests/test_actions.py::test_maquina_nova_abre_cofre_pelo_salt_publicado`.
 
 ## Servidor cofre-cego (`src/server/`)
 
