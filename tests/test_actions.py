@@ -159,3 +159,64 @@ def test_push_concorrente_levanta_conflito(tmp_path, keyring):
 
         with pytest.raises(ConflictError):                 # B baseou-se em versão obsoleta
             B.session._commit(expected_B, vault_B)
+
+
+# --- retry automático no conflito -------------------------------------------
+
+class _FlakyManifest:
+    """Embrulha um VaultClient e falha os N primeiros PUT /manifest com ConflictError
+    (sem tocar no servidor), delegando o resto."""
+
+    def __init__(self, real, fails):
+        self._real = real
+        self._fails = fails
+        self.tentativas = 0
+
+    def put_manifest(self, *a, **k):
+        self.tentativas += 1
+        if self.tentativas <= self._fails:
+            raise ConflictError(current=999)
+        return self._real.put_manifest(*a, **k)
+
+    def __getattr__(self, name):                           # health/get/put_blob/... → real
+        return getattr(self._real, name)
+
+
+def _session(client, keyring, base, name, **kw):
+    root = base / "Documentos"
+    root.mkdir(parents=True)
+    return root, VaultSession(
+        client=client, keyring=keyring, index=Index(base / "i.db"),
+        resolver=PathResolver([(root, True)]), device=name, salt=SALT, **kw,
+    )
+
+
+def test_send_refaz_automaticamente_apos_conflito(tmp_path, keyring):
+    store = BlindStorage(tmp_path / "vault")
+    with running(store) as port:
+        flaky = _FlakyManifest(VaultClient("127.0.0.1", port), fails=1)
+        root, sess = _session(flaky, keyring, tmp_path / "A", "pc-A")
+        (root / "nota.txt").write_bytes(b"conteudo importante")
+        sf = scanner.scan([(root, True)])["Documentos/nota.txt"]
+
+        sess.send(sf)                                      # 1º CAS conflita, 2º (auto) passa
+        assert flaky.tentativas == 2
+
+        # chegou mesmo ao servidor
+        _, blob = VaultClient("127.0.0.1", port).get_manifest()
+        from client import manifest as m
+        vault = m.open_sealed(blob, keyring.manifest_key)
+        assert vault.file_by_path("Documentos/nota.txt") is not None
+
+
+def test_send_desiste_apos_max_retries(tmp_path, keyring):
+    store = BlindStorage(tmp_path / "vault")
+    with running(store) as port:
+        flaky = _FlakyManifest(VaultClient("127.0.0.1", port), fails=99)
+        root, sess = _session(flaky, keyring, tmp_path / "B", "pc-B", max_retries=3)
+        (root / "x.txt").write_bytes(b"y")
+        sf = scanner.scan([(root, True)])["Documentos/x.txt"]
+
+        with pytest.raises(ConflictError):
+            sess.send(sf)
+        assert flaky.tentativas == 3                       # tentou exatamente max_retries

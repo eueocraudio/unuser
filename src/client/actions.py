@@ -24,7 +24,7 @@ from . import chunker, crypto, manifest
 from .crypto import Keyring
 from .index import FileRecord, Index
 from .scanner import ScannedFile
-from .transport import VaultClient
+from .transport import ConflictError, VaultClient
 
 
 class IntegrityError(Exception):
@@ -81,6 +81,7 @@ class VaultSession:
     device: str
     vault_id: str = "v:default"
     salt: bytes = b""                                 # usado só para bootstrap de cofre novo
+    max_retries: int = 5                              # tentativas de CAS antes de desistir
 
     # --- manifesto -----------------------------------------------------------
 
@@ -96,17 +97,40 @@ class VaultSession:
         sealed = manifest.seal(vault, self.keyring.manifest_key)
         self.client.put_manifest(expected, vault.vault_version, sealed)
 
+    def _apply_with_retry(self, apply) -> manifest.VaultManifest:
+        """``load → apply(vault) → CAS``, com **retry automático** em conflito.
+
+        ``apply(vault)`` muta o manifesto recém-carregado e devolve ``True`` se há algo a
+        commitar (``False`` = nada a fazer, ex.: apagar o que o servidor já apagou). Em
+        :class:`ConflictError` (outro cliente avançou), recarrega o manifesto fresco e
+        **reaplica** a mutação — até ``max_retries`` vezes.
+        """
+        err: ConflictError | None = None
+        for _ in range(max(1, self.max_retries)):
+            expected, vault = self._load()
+            if not apply(vault):
+                return vault                          # sem mutação → sem commit
+            try:
+                self._commit(expected, vault)
+                return vault
+            except ConflictError as e:
+                err = e                               # recarrega e refaz sobre a versão nova
+        raise err
+
     # --- enviar (ações 1 e 3) ------------------------------------------------
 
     def send_many(self, files: list[ScannedFile]) -> None:
-        """Envia vários arquivos num único ciclo (load → upload → 1 commit)."""
-        expected, vault = self._load()
-        staged: list[tuple[ScannedFile, list[chunker.Block]]] = []
-        for sf in files:
-            blocks = self._upload_and_record(vault, sf)
-            staged.append((sf, blocks))
-        self._commit(expected, vault)
-        for sf, blocks in staged:                     # base local só após o commit aceitar
+        """Envia vários arquivos num ciclo (load → upload → CAS), com retry em conflito."""
+        staged: dict[str, tuple[ScannedFile, list[chunker.Block]]] = {}
+
+        def apply(vault):
+            staged.clear()                            # reaplicado do zero a cada tentativa
+            for sf in files:
+                staged[sf.vault_path] = (sf, self._upload_and_record(vault, sf))
+            return True
+
+        vault = self._apply_with_retry(apply)
+        for sf, blocks in staged.values():            # base local só após o commit aceitar
             self._record_base(vault, sf, blocks)
 
     def send(self, scanned: ScannedFile) -> None:
@@ -176,12 +200,19 @@ class VaultSession:
     # --- apagar --------------------------------------------------------------
 
     def delete(self, vault_path: str) -> None:
-        """Tombstone no servidor (§8: apaga para todos mantendo histórico) + remove local."""
-        expected, vault = self._load()
-        fm = vault.file_by_path(vault_path)
-        if fm is not None and not fm.deleted:
+        """Tombstone no servidor (§8: apaga para todos mantendo histórico) + remove local.
+
+        O tombstone usa CAS com retry automático; a remoção local acontece de qualquer
+        forma (inclusive se o servidor já tinha apagado).
+        """
+        def apply(vault):
+            fm = vault.file_by_path(vault_path)
+            if fm is None or fm.deleted:
+                return False                          # servidor já não tem o arquivo
             vault.mark_deleted(path=vault_path, device=self.device)
-            self._commit(expected, vault)
+            return True
+
+        self._apply_with_retry(apply)
         try:
             dest = self.resolver.local_path(vault_path)
             if dest.exists():

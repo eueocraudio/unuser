@@ -156,9 +156,11 @@ mutam (`actions`).
   `index.has_block`, e `record_version` no manifesto — por §8 **todo envio versiona**,
   então "Substituir" e "Versionar" são a mesma operação de armazenamento), `receive`
   (baixa, **verifica `content_hash`**, grava e atualiza a base) e `delete` (tombstone §8 +
-  remove local). Push do manifesto é **CAS**: `ConflictError` se o servidor avançou — quem
-  chama recarrega e repete. `PathResolver` traduz vault path ↔ caminho local
-  (`raiz.parent / vault_path`). A base local só é gravada **após** o commit ser aceito.
+  remove local). Push do manifesto é **CAS** com **retry automático** (`_apply_with_retry`:
+  em `ConflictError`, recarrega o manifesto fresco e **reaplica** a mutação, até
+  `max_retries`=5; só desiste levantando `ConflictError` no fim). `PathResolver` traduz
+  vault path ↔ caminho local (`raiz.parent / vault_path`). A base local só é gravada
+  **após** o commit ser aceito.
 
 ## Configuração e CLI (`src/client/config.py`, `src/client/cli.py`)
 
@@ -222,5 +224,5 @@ instala-se por `pip install -e ".[gui]"` — ver `packaging/README.md`.
 
 Fases 1–6 ✓ (cripto · chunker+índice · manifesto · servidor cofre-cego+mTLS · motor de
 sync+CLI · GUI PySide6 (threaded) + SOCKS5/Tor · empacotamento `unuserd` .deb/systemd).
-Pendências de refino: salt cross-máquina, retry no `ConflictError`, e um `.deb` para o
+Pendências de refino: salt cross-máquina, streaming no chunker, e um `.deb` para o
 cliente. Acesso remoto é **Tor** (sem VPN).
