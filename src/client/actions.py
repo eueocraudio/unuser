@@ -22,7 +22,7 @@ from pathlib import Path
 
 from . import chunker, crypto, manifest
 from .crypto import Keyring
-from .index import FileRecord, Index
+from .index import BlockRef, FileRecord, Index
 from .scanner import ScannedFile
 from .transport import ConflictError, VaultClient
 
@@ -121,7 +121,7 @@ class VaultSession:
 
     def send_many(self, files: list[ScannedFile]) -> None:
         """Envia vários arquivos num ciclo (load → upload → CAS), com retry em conflito."""
-        staged: dict[str, tuple[ScannedFile, list[chunker.Block]]] = {}
+        staged: dict[str, tuple[ScannedFile, list[BlockRef]]] = {}
 
         def apply(vault):
             staged.clear()                            # reaplicado do zero a cada tentativa
@@ -137,27 +137,32 @@ class VaultSession:
         self.send_many([scanned])
 
     def _upload_and_record(self, vault: manifest.VaultManifest,
-                           sf: ScannedFile) -> list[chunker.Block]:
-        data = Path(sf.abspath).read_bytes()
-        if crypto.content_hash(data) != sf.hash:
-            raise IntegrityError(f"{sf.vault_path}: arquivo mudou durante o envio")
+                           sf: ScannedFile) -> list[BlockRef]:
         fm = vault.file_by_path(sf.vault_path)
         if fm is not None and not fm.deleted:
             fk = vault.file_key(fm, self.keyring.kek)  # reaproveita a FK do arquivo
         else:
             fk = crypto.generate_file_key()
-        blocks = chunker.split(data, self.keyring.block_id_key)
-        for b in blocks:
-            if not self.index.has_block(b.block_id):   # dedup: pula o que já está no cofre
-                self.client.put_blob(b.block_id, crypto.encrypt(fk, b.data))
+        # Streaming: chunka/cifra/envia um bloco por vez; guarda só id+tamanho (não os
+        # dados) e hasheia incrementalmente para verificar o content_hash no fim.
+        hasher = crypto.content_hasher()
+        refs: list[BlockRef] = []
+        with open(sf.abspath, "rb") as f:
+            for b in chunker.split_stream(f, self.keyring.block_id_key):
+                hasher.update(b.data)
+                if not self.index.has_block(b.block_id):   # dedup: pula o que já está no cofre
+                    self.client.put_blob(b.block_id, crypto.encrypt(fk, b.data))
+                refs.append(BlockRef(b.block_id, b.length))
+        if "blake3:" + hasher.hexdigest() != sf.hash:
+            raise IntegrityError(f"{sf.vault_path}: arquivo mudou durante o envio")
         vault.record_version(
             path=sf.vault_path, fk=fk, kek=self.keyring.kek, device=self.device,
-            content_hash=sf.hash, size=sf.size, blocks=blocks, mode=sf.mode,
+            content_hash=sf.hash, size=sf.size, blocks=refs, mode=sf.mode,
         )
-        return blocks
+        return refs
 
     def _record_base(self, vault: manifest.VaultManifest, sf: ScannedFile,
-                     blocks: list[chunker.Block]) -> None:
+                     blocks: list[BlockRef]) -> None:
         fm = vault.file_by_path(sf.vault_path)
         self.index.upsert_file(FileRecord(
             file_id=fm.file_id, path=sf.vault_path, size=sf.size,

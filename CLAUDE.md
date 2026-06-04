@@ -91,7 +91,15 @@ rótulo fixo — **não** aleatório, senão as fronteiras diferiam entre máqui
 quebraria). `chunk_bytes` recorta; `split(data, block_id_key)` já devolve `Block`s com
 `block_id`. Editar um trecho só muda os blocos próximos (ver
 `test_edit_local_preserva_a_maioria_dos_blocos`). Parâmetros padrão: min 4 KiB / avg 16 KiB
-/ max 64 KiB. MVP lê o arquivo inteiro em memória (streaming fica para depois).
+/ max 64 KiB.
+
+**Streaming:** `chunk_stream(reader)` / `split_stream(reader, key)` / `split_file(path,
+key)` chunkam sem carregar o arquivo inteiro (janela ≤ ~max_size). Produzem **exatamente**
+as mesmas fronteiras que a versão em memória — testado byte-a-byte
+(`test_chunk_stream_identico_ao_chunk_bytes`), inviolável p/ a dedup. `chunk_file` é
+streaming. Quem usa: `actions._upload_and_record` (cifra/envia 1 bloco por vez, guarda só
+`BlockRef`s e hasheia incremental via `crypto.content_hasher`) e `scanner` (hash por
+partes). Assim nem o envio nem o scan seguram o arquivo todo em memória.
 
 ## Índice local (`src/client/index.py`)
 

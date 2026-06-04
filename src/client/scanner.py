@@ -92,9 +92,12 @@ class IgnoreRules:
 
 def _file_meta(abspath: Path) -> tuple[int, float, str, str]:
     st = abspath.stat()
-    data = abspath.read_bytes()           # MVP: lê inteiro em memória (igual ao chunker)
+    hasher = crypto.content_hasher()      # hash em streaming (não carrega o arquivo inteiro)
+    with open(abspath, "rb") as f:
+        for part in iter(lambda: f.read(1 << 16), b""):
+            hasher.update(part)
     mode = oct(st.st_mode)[-6:] if st.st_mode > 0o7777 else format(st.st_mode, "06o")
-    return st.st_size, st.st_mtime, mode, crypto.content_hash(data)
+    return st.st_size, st.st_mtime, mode, "blake3:" + hasher.hexdigest()
 
 
 def scan_root(root: Path, *, recursive: bool, ignore: IgnoreRules,

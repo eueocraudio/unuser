@@ -180,3 +180,12 @@ def block_id(block_id_key: bytes, block: bytes) -> str:
 def content_hash(data: bytes) -> str:
     """Hash BLAKE3 do conteúdo (detecção de modificação e integridade)."""
     return "blake3:" + _blake3(data).hexdigest()
+
+
+def content_hasher():
+    """Hasher BLAKE3 incremental — mesmo digest de :func:`content_hash`, alimentado por
+    partes (para hashear um arquivo em streaming sem carregá-lo inteiro).
+
+    Uso: ``h = content_hasher(); h.update(parte); ...; "blake3:" + h.hexdigest()``.
+    """
+    return _blake3()
