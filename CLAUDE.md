@@ -13,6 +13,10 @@ controlada por status/ações na interface.
 A especificação completa e canônica está em **`doc/especificacao-unuser.html`**
 (fonte editável) — leia-a antes de mexer na arquitetura. O PDF é gerado a partir dela.
 
+**Estado:** Fases 1–6 do roadmap concluídas + refinos (GUI com threading, retry
+automático do CAS, chunking em streaming, salt cross-máquina). 154 testes passando.
+Executáveis `unuser` (cliente) e `unuserd` (servidor); `.deb` de ambos em `packaging/`.
+
 ## Ambiente (peculiaridade importante)
 
 A máquina **não tem `ensurepip` nem `python3-venv`**, e `sudo` exige senha. Por isso
@@ -28,7 +32,8 @@ curl -sS -o /tmp/get-pip.py https://bootstrap.pypa.io/get-pip.py
 Não tente `python3 -m venv .venv` puro (falha por falta de ensurepip).
 
 Requer **Python ≥ 3.11** (o código usa sintaxe de união `X | None`). Deps de runtime:
-`cryptography`, `argon2-cffi`, `blake3`; de dev só `pytest`. Não há linter/formatter
+`cryptography`, `argon2-cffi`, `blake3`; a GUI usa o extra `gui` (`PySide6-Essentials`,
+instale com `pip install -e ".[gui]"`); de dev só `pytest`. Não há linter/formatter
 configurado no `pyproject.toml`.
 
 ## Comandos
