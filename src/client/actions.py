@@ -61,6 +61,25 @@ class PathResolver:
             raise KeyError(f"raiz desconhecida para o prefixo {prefix!r}")
         return root.parent / vault_path
 
+    def vault_path_for(self, local_path) -> str | None:
+        """Caminho local → *vault path*, ou ``None`` se o arquivo está fora do cofre.
+
+        É o inverso de :meth:`local_path`: usado para "adicionar ao cofre" um arquivo
+        escolhido na GUI. Casa o arquivo a uma raiz (``<nome-da-raiz>/<relativo>``) ou a
+        um item avulso conhecido (pelo basename). Fora disso, devolve ``None``.
+        """
+        p = Path(local_path).resolve()
+        for name, root in self.roots.items():
+            try:
+                rel = p.relative_to(Path(root).resolve())
+            except ValueError:
+                continue
+            return f"{name}/{rel.as_posix()}"
+        for name, item in self.extras.items():
+            if Path(item).resolve() == p:
+                return name
+        return None
+
 
 def _apply_mode(path: Path, mode: str | None) -> None:
     if mode:

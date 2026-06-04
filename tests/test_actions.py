@@ -167,6 +167,18 @@ def test_blocos_iguais_em_arquivos_diferentes_nao_corrompem(tmp_path, keyring):
         assert B.session.receive("Documentos/b.txt").read_bytes() == data
 
 
+def test_vault_path_for_mapeia_inverso(tmp_path):
+    """vault_path_for é o inverso de local_path: caminho local → vault path (ou None)."""
+    root = tmp_path / "Documentos"
+    (root / "sub").mkdir(parents=True)
+    dentro = root / "sub" / "x.txt"
+    dentro.write_text("oi")
+    r = PathResolver([(root, True)])
+    assert r.vault_path_for(dentro) == "Documentos/sub/x.txt"
+    assert r.vault_path_for(root / "topo.txt") == "Documentos/topo.txt"
+    assert r.vault_path_for(tmp_path / "fora.txt") is None     # fora de qualquer raiz
+
+
 # --- conflito (CAS) ----------------------------------------------------------
 
 def test_push_concorrente_levanta_conflito(tmp_path, keyring):
