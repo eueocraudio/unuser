@@ -26,15 +26,29 @@ endurecimento (`ProtectSystem=strict`, `NoNewPrivileges`, `MemoryDenyWriteExecut
 
 Inspecionar o pacote sem instalar: `dpkg-deb -I dist/unuserd_*.deb` / `dpkg-deb -c …`.
 
-## Cliente — `unuser` (GUI/CLI)
+## Cliente — `unuser` (GUI/CLI, .deb)
 
-O cliente é manual (GUI/CLI, sem daemon) e tem dependências pesadas (PySide6, blake3,
-argon2-cffi) que nem sempre estão empacotadas no Debian. Por isso a instalação
-recomendada do cliente é **pip em um venv** (ver `CLAUDE.md` → "Ambiente"):
+O cliente (GUI/CLI, sem daemon) depende dos pacotes de **sistema** do Debian para o
+pesado e **embarca só o `blake3`** (que não existe no apt):
+
+- `Depends: python3 (>=3.13, <<3.14), python3-cryptography, python3-argon2`
+- `Recommends: python3-pyside6.qtwidgets` (só a GUI; o CLI de sync funciona sem)
+- `blake3` vendorizado em `/usr/lib/unuser/blake3` → por ser extensão compilada
+  (cp313/amd64), o pacote é **amd64** e fixado ao python3.13.
 
 ```bash
-.venv/bin/python -m pip install -e ".[gui]"   # expõe os executáveis `unuser` e `unuserd`
-unuser gui
+sh packaging/build-deb-client.sh    # gera dist/unuser_<versao>_amd64.deb (sem root)
+sudo apt install ./dist/unuser_0.0.1_amd64.deb
+unuser gui          # ou: unuser status / send / receive / delete
 ```
 
-Um `.deb` do cliente (via `dh-virtualenv` ou venv embarcado) fica como trabalho futuro.
+> O build copia o `blake3` do venv de build (`.venv/lib/python3.13/site-packages/blake3`),
+> então rode `pip install -e ".[dev]"` antes. O `.deb` foi verificado rodando com o
+> **python3 do sistema** (fora do venv): blake3 vendorizado em uso e um `send`/`status`
+> ponta-a-ponta contra um `unuserd`.
+
+Config do cliente (§9): `~/.env`, `~/.config/unuser/dirs.json`, `~/.unuserignore`,
+passphrase via `getpass`/`UNUSER_PASSPHRASE`, keyfile via `--keyfile`/`UNUSER_KEYFILE`.
+
+Alternativa para desenvolvimento: `pip install -e ".[gui]"` num venv (expõe `unuser` e
+`unuserd`).

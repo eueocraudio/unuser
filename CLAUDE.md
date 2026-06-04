@@ -228,12 +228,17 @@ GUI usa `check_same_thread=False` (acesso serializado pelo pool). Lançada por `
 
 ## Empacotamento (`packaging/`)
 
-Fase 6: o servidor vira `.deb` + systemd. `packaging/build-deb.sh` monta um pacote
-binário do `unuserd` **sem root** (`dpkg-deb --root-owner-group`) — só `server`+`common`,
-`Depends: python3, python3-cryptography` — em `dist/unuserd_<ver>_all.deb`.
-`packaging/systemd/unuserd.service` (roda como usuário `unuser`, endurecido) +
-`packaging/default/unuserd` (env com `UNUSERD_ARGS`). O cliente (GUI/CLI, deps pesadas)
-instala-se por `pip install -e ".[gui]"` — ver `packaging/README.md`.
+Fase 6: dois `.deb` montados sem root (`dpkg-deb --root-owner-group`).
+- **Servidor** (`build-deb.sh`): `unuserd`, só `server`+`common`, `Depends: python3,
+  python3-cryptography`, `Architecture: all`, em `dist/unuserd_<ver>_all.deb`. +
+  `systemd/unuserd.service` (usuário `unuser`, endurecido) + `default/unuserd`.
+- **Cliente** (`build-deb-client.sh`): `unuser`, `client`+`common`, depende dos pacotes
+  de sistema (`python3-cryptography`, `python3-argon2`; `Recommends:
+  python3-pyside6.qtwidgets` p/ a GUI) e **embarca só o `blake3`** (não existe no apt) →
+  `Architecture: amd64`, fixado ao python3.13, `dist/unuser_<ver>_amd64.deb`. + atalho
+  `.desktop`. O build copia o blake3 do venv (`pip install -e ".[dev]"` antes).
+Ver `packaging/README.md`. Os `.deb` foram verificados rodando com o python3 do **sistema**
+(fora do venv).
 
 ## Roadmap
 
