@@ -1,0 +1,31 @@
+[Unit]
+Description=unuser — servidor cofre-cego (zero-knowledge)
+Documentation=file:/usr/share/doc/unuserd/operacao-tor.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=unuser
+Group=unuser
+EnvironmentFile=-/etc/default/unuserd
+ExecStart=/usr/bin/unuserd $UNUSERD_ARGS
+Restart=on-failure
+RestartSec=2
+
+# Endurecimento: o cofre-cego só precisa ler/gravar o próprio estado.
+StateDirectory=unuser
+ReadWritePaths=/var/lib/unuser
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

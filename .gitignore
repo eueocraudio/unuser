@@ -7,3 +7,6 @@ __pycache__/
 
 # perfil temporário do LibreOffice (geração de PDF)
 /tmp/lo_unuser_profile/
+
+# artefatos de empacotamento (.deb gerados)
+/dist/

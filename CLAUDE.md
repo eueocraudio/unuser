@@ -181,6 +181,9 @@ mutam (`actions`).
 - `http_server.py` — API stdlib (`ThreadingHTTPServer`): `/healthz`, `GET/PUT /manifest`
   (versão via headers `X-Unuser-*`), `HEAD/GET/PUT /blob/<id>`. `make_server(..., ssl_context=)`
   habilita mTLS. `port=0` = porta efêmera (testes).
+- `cli.py` — executável **`unuserd`** (entry point `[project.scripts]`): `build_server(args)`
+  monta `BlindStorage`+`make_server` (mTLS se `--tls-cert/key/allow`), `main` trata
+  SIGTERM (stop do systemd) e faz `serve_forever`. Importa `common.tls` só com mTLS.
 - `src/common/tls.py` — geração de certs EC autoassinados, `cert_fingerprint`, e contextos
   mTLS. Allowlist = arquivo PEM concatenando os certs de cliente confiáveis
   (`write_allowlist`); o servidor faz `verify_mode=CERT_REQUIRED`.
@@ -202,9 +205,18 @@ menu de contexto. Lançada por `unuser gui` (import tardio do PySide6, dep opcio
 `gui`). Testável sem display: `tests/test_gui.py` usa `QT_QPA_PLATFORM=offscreen` +
 controller falso.
 
+## Empacotamento (`packaging/`)
+
+Fase 6: o servidor vira `.deb` + systemd. `packaging/build-deb.sh` monta um pacote
+binário do `unuserd` **sem root** (`dpkg-deb --root-owner-group`) — só `server`+`common`,
+`Depends: python3, python3-cryptography` — em `dist/unuserd_<ver>_all.deb`.
+`packaging/systemd/unuserd.service` (roda como usuário `unuser`, endurecido) +
+`packaging/default/unuserd` (env com `UNUSERD_ARGS`). O cliente (GUI/CLI, deps pesadas)
+instala-se por `pip install -e ".[gui]"` — ver `packaging/README.md`.
+
 ## Roadmap
 
-Fases 1–5 ✓ (cripto · chunker+índice · manifesto · servidor cofre-cego+mTLS · motor de
-sync+CLI · GUI PySide6 + SOCKS5/Tor). Falta da Fase 5: refinos de UX (threading p/ não
-travar a UI em rede lenta) e o salt cross-máquina. **Fase 6**: empacotamento
-(.deb/systemd). Acesso remoto é **Tor** (sem VPN).
+Fases 1–6 ✓ (cripto · chunker+índice · manifesto · servidor cofre-cego+mTLS · motor de
+sync+CLI · GUI PySide6 + SOCKS5/Tor · empacotamento `unuserd` .deb/systemd). Pendências
+de refino: threading na GUI (rede lenta), salt cross-máquina, retry no `ConflictError`,
+e um `.deb` para o cliente. Acesso remoto é **Tor** (sem VPN).

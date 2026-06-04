@@ -1,0 +1,8 @@
+# Configuração do daemon unuserd (lido pela unit systemd como EnvironmentFile).
+# Edite e rode: systemctl restart unuserd
+
+# Escuta SÓ em localhost — o Onion Service do Tor publica o serviço (ver operacao-tor.md).
+# Para ligar o mTLS, gere os certs (unuser.common.tls.generate_self_signed) e acrescente:
+#   --tls-cert /etc/unuser/server.crt --tls-key /etc/unuser/server.key
+#   --tls-allow /etc/unuser/allow.pem
+UNUSERD_ARGS=--storage /var/lib/unuser/vault --host 127.0.0.1 --port 8443

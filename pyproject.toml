@@ -16,6 +16,7 @@ gui = ["PySide6-Essentials>=6.7"]
 
 [project.scripts]
 unuser = "client.cli:main"
+unuserd = "server.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
