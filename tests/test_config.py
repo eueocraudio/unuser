@@ -1,5 +1,9 @@
 """Testes do carregamento de configuração (§9): .env e dirs.json."""
 
+from pathlib import Path
+
+import pytest
+
 from client.config import ConnConfig, ContentConfig
 from client.transport import VaultClient
 
@@ -63,3 +67,55 @@ def test_content_scan_integra_o_scanner(tmp_path):
     cc = ContentConfig(default_dirs=[(str(root), True)])
     achados = cc.scan()
     assert set(achados) == {"Documentos/a.txt"}
+
+
+# --- mutação/persistência e auto-registro de pastas (dirs.json) -------------
+
+def test_add_dir_persiste_e_eh_idempotente(tmp_path):
+    cfg_path = tmp_path / ".config" / "unuser" / "dirs.json"
+    cfg = ContentConfig.from_json(cfg_path)               # não existe → vazio, com source
+    assert cfg.add_dir(tmp_path / "Docs") is True
+    assert cfg.add_dir(tmp_path / "Docs") is False        # idempotente
+    reread = ContentConfig.from_json(cfg_path)            # persistiu em disco
+    assert [Path(p) for p, _ in reread.default_dirs] == [tmp_path / "Docs"]
+    assert cfg.remove_dir(tmp_path / "Docs") is True
+    assert ContentConfig.from_json(cfg_path).default_dirs == []
+
+
+def test_resolve_registra_a_pasta_quando_dentro_do_home(tmp_path):
+    home = tmp_path / "home"
+    proj = home / "Projetos"
+    proj.mkdir(parents=True)
+    f = proj / "rel.txt"
+    f.write_text("x")
+    cfg = ContentConfig.from_json(home / ".config" / "unuser" / "dirs.json")
+
+    vp = cfg.resolve_or_register(f, home=home)
+    assert vp == "Projetos/rel.txt"                       # vault path pela raiz registrada
+    assert any(Path(p).resolve() == proj.resolve() for p, _ in cfg.default_dirs)
+    # idempotente: 2º arquivo na mesma pasta não duplica a raiz
+    g = proj / "outro.txt"; g.write_text("y")
+    assert cfg.resolve_or_register(g, home=home) == "Projetos/outro.txt"
+    assert len(cfg.default_dirs) == 1
+
+
+def test_resolve_arquivo_solto_no_home_vira_avulso(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    f = home / "solto.txt"
+    f.write_text("x")
+    cfg = ContentConfig.from_json(home / "dirs.json")
+
+    vp = cfg.resolve_or_register(f, home=home)
+    assert vp == "solto.txt"                              # item avulso, NÃO a home inteira
+    assert cfg.default_dirs == []
+    assert [Path(i).resolve() for i in cfg.extra_items] == [f.resolve()]
+
+
+def test_resolve_fora_do_home_levanta(tmp_path):
+    home = tmp_path / "home"; home.mkdir()
+    fora = tmp_path / "outro"; fora.mkdir()
+    f = fora / "x.txt"; f.write_text("y")
+    cfg = ContentConfig.from_json(home / "dirs.json")
+    with pytest.raises(ValueError):
+        cfg.resolve_or_register(f, home=home)

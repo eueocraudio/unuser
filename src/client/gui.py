@@ -1,10 +1,10 @@
 """GUI do cliente unuser — Explorer de duas áreas em tema escuro (PySide6 + QSS).
 
 Layout estilo Explorer (§5): à **esquerda** uma árvore de **pastas** (TreeView
-hierárquica, com a raiz "Cofre"); à **direita** a **lista de arquivos** da pasta
-selecionada, cada um com a sua cor de status (§7.1). As ações da §7.2 ficam na barra de
-ferramentas e no menu de contexto da lista. Paleta escura; sem ícones/imagens
-proprietários.
+hierárquica, com a raiz "Cofre"); à **direita** a **lista** dos arquivos **diretamente**
+na pasta selecionada (não recursivo — subpastas ficam na árvore), cada um com a sua cor
+de status (§7.1). As ações da §7.2 ficam na barra de ferramentas e no menu de contexto da
+lista. Paleta escura; sem ícones/imagens proprietários.
 
 A janela é desacoplada da rede: recebe um *controller* com os métodos
 ``status() -> list[FileState]``, ``send/receive/delete(paths)`` e ``connection_label()``.
@@ -17,8 +17,9 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QAction, QBrush, QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QLabel, QMainWindow, QMenu, QMessageBox,
-    QSplitter, QStatusBar, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QDialog, QHBoxLayout, QLabel, QListWidget,
+    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSplitter, QStatusBar,
+    QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .sync import FileState, FileStatus
@@ -85,6 +86,67 @@ class _Worker(QRunnable):
             self.signals.failed.emit(f"{type(e).__name__}: {e}")
 
 
+class SyncFoldersDialog(QDialog):
+    """Tela de gerência das **pastas sincronizadas** (raízes do cofre) + itens avulsos.
+
+    Lista o que está em ``dirs.json`` e permite adicionar uma pasta (seletor de
+    diretório) ou remover a seleção — tudo via ``controller`` (``sync_folders()``,
+    ``add_root``/``remove_root``/``remove_item``)."""
+
+    def __init__(self, controller, parent=None):
+        super().__init__(parent)
+        self.controller = controller
+        self.setWindowTitle("Pastas sincronizadas")
+        self.setStyleSheet(DARK_QSS)
+        self.resize(480, 340)
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel("Pastas (e arquivos avulsos) que entram no cofre:"))
+        self.listw = QListWidget()
+        self.listw.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        lay.addWidget(self.listw, 1)
+        row = QHBoxLayout()
+        add_b = QPushButton("Adicionar pasta…")
+        add_b.clicked.connect(self._pick_and_add)
+        rem_b = QPushButton("Remover")
+        rem_b.clicked.connect(self._remove_selected)
+        close_b = QPushButton("Fechar")
+        close_b.clicked.connect(self.accept)
+        row.addWidget(add_b)
+        row.addWidget(rem_b)
+        row.addStretch(1)
+        row.addWidget(close_b)
+        lay.addLayout(row)
+        self._reload()
+
+    def _reload(self) -> None:
+        self.listw.clear()
+        data = self.controller.sync_folders()
+        for path, rec in data.get("dirs", []):
+            suffix = "recursivo" if rec else "não recursivo"
+            it = QListWidgetItem(f"📁 {path}   ({suffix})")
+            it.setData(Qt.ItemDataRole.UserRole, ("dir", path))
+            self.listw.addItem(it)
+        for item in data.get("items", []):
+            it = QListWidgetItem(f"📄 {item}   (arquivo avulso)")
+            it.setData(Qt.ItemDataRole.UserRole, ("item", item))
+            self.listw.addItem(it)
+
+    def _pick_and_add(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        d = QFileDialog.getExistingDirectory(self, "Escolher pasta para sincronizar")
+        if d:
+            self.controller.add_root(d)
+            self._reload()
+
+    def _remove_selected(self) -> None:
+        it = self.listw.currentItem()
+        if it is None:
+            return
+        kind, path = it.data(Qt.ItemDataRole.UserRole)
+        (self.controller.remove_root if kind == "dir" else self.controller.remove_item)(path)
+        self._reload()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, controller, *, async_run: bool = True):
         super().__init__()
@@ -119,10 +181,15 @@ class MainWindow(QMainWindow):
             self._actions[key] = act
         tb.addSeparator()
         add_act = QAction("Adicionar arquivo", self)
-        add_act.setToolTip("Escolher um arquivo (numa pasta sincronizada) e enviá-lo ao cofre")
+        add_act.setToolTip("Escolher um arquivo e enviá-lo ao cofre (registra a pasta se preciso)")
         add_act.triggered.connect(self._pick_and_add)
         tb.addAction(add_act)
         self._actions["add"] = add_act
+        folders_act = QAction("Pastas…", self)
+        folders_act.setToolTip("Gerenciar as pastas sincronizadas (raízes do cofre)")
+        folders_act.triggered.connect(self._open_folders_dialog)
+        tb.addAction(folders_act)
+        self._actions["folders"] = folders_act
         tb.addSeparator()
         self.conn_label = QLabel(f"  {self._safe(self.controller.connection_label)}")
         tb.addWidget(self.conn_label)
@@ -182,8 +249,16 @@ class MainWindow(QMainWindow):
             parent.addChild(item)
             nodes[folder] = item
         self.folder_tree.expandAll()
-        self.folder_tree.setCurrentItem(root)            # seleciona a raiz → mostra tudo
-        self._show_folder("")
+        default = self._default_node(root)               # abre numa pasta com arquivos
+        self.folder_tree.setCurrentItem(default)
+        self._show_folder(default.data(0, _ROLE) or "")
+
+    def _default_node(self, root: QTreeWidgetItem) -> QTreeWidgetItem:
+        """Pasta a selecionar ao (re)abrir: a raiz se ela tem arquivos soltos; senão a
+        primeira subpasta (para não abrir numa lista vazia); senão a própria raiz."""
+        if any("/" not in st.vault_path for st in self._states):
+            return root
+        return root.child(0) if root.childCount() else root
 
     def _folders(self) -> set[str]:
         """Conjunto de todas as pastas (e ancestrais) presentes nos caminhos atuais."""
@@ -202,15 +277,15 @@ class MainWindow(QMainWindow):
         self._show_folder(self._current_folder())
 
     def _show_folder(self, folder: str) -> None:
-        """Popula a lista da direita com os arquivos contidos em ``folder`` (recursivo;
-        raiz = todos). Cada arquivo na sua cor de status."""
+        """Popula a lista da direita SÓ com os arquivos **diretamente** em ``folder`` (não
+        recursivo — subpastas ficam na árvore à esquerda). Cada arquivo na sua cor."""
         self.tree.clear()
-        prefix = f"{folder}/" if folder else ""
         for st in self._states:
-            if folder and not st.vault_path.startswith(prefix):
+            head, sep, name = st.vault_path.rpartition("/")
+            parent = head if sep else ""                 # pasta-pai do arquivo
+            if parent != folder:
                 continue
-            rel = st.vault_path[len(prefix):]            # exibe relativo à pasta selecionada
-            item = QTreeWidgetItem([rel, st.status.value])
+            item = QTreeWidgetItem([name, st.status.value])
             item.setForeground(1, QBrush(QColor(STATUS_COLORS.get(st.status, "#d6d6d6"))))
             item.setData(0, _ROLE, st)                   # FileState completo (path absoluto)
             self.tree.addTopLevelItem(item)
@@ -264,6 +339,13 @@ class MainWindow(QMainWindow):
             return self.controller.status()
 
         self._submit(work, self.set_states, f"adicionado(s) {len(local_paths)} arquivo(s)")
+
+    def _open_folders_dialog(self) -> None:
+        """Abre a tela de pastas sincronizadas; ao fechar, atualiza a comparação."""
+        if self._busy:
+            return
+        SyncFoldersDialog(self.controller, self).exec()
+        self._run("atualizar")                             # pastas podem ter mudado
 
     def _submit(self, fn, on_done, done_msg: str) -> None:
         """Executa ``fn`` fora da thread da UI e entrega o resultado a ``on_done`` na UI."""

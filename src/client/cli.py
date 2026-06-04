@@ -155,20 +155,26 @@ def cmd_gui(args) -> int:
                 session.delete(p)
 
         def add(self, local_paths):
-            resolver = content.path_resolver()
-            sfs = []
-            for lp in local_paths:
-                vp = resolver.vault_path_for(lp)
-                if vp is None:
-                    raise ValueError(
-                        f"{lp}: fora das pastas sincronizadas — adicione a pasta no dirs.json"
-                    )
-                sfs.append(scanner.scan_one(lp, vp))
+            # resolve_or_register: se o arquivo está fora das raízes mas dentro de ~/,
+            # registra a pasta (ou o avulso) no dirs.json antes de enviar.
+            sfs = [scanner.scan_one(lp, content.resolve_or_register(lp)) for lp in local_paths]
             session.send_many(sfs)
 
         def add_start_dir(self):
             dirs = content.default_dirs
             return str(dirs[0][0]) if dirs else str(_HOME)
+
+        def sync_folders(self):
+            return {"dirs": list(content.default_dirs), "items": list(content.extra_items)}
+
+        def add_root(self, path):
+            return content.add_dir(path)
+
+        def remove_root(self, path):
+            return content.remove_dir(path)
+
+        def remove_item(self, path):
+            return content.remove_item(path)
 
         def connection_label(self):
             if conn.mode == "tor":

@@ -47,6 +47,20 @@ class FakeController:
     def connection_label(self):
         return "Direto 127.0.0.1:8443"
 
+    # --- gerência de pastas sincronizadas (para o SyncFoldersDialog) ---------
+    def sync_folders(self):
+        return {"dirs": list(getattr(self, "dirs", [])), "items": list(getattr(self, "items", []))}
+
+    def add_root(self, path):
+        self.dirs = getattr(self, "dirs", [])
+        self.dirs.append((path, True))
+
+    def remove_root(self, path):
+        self.dirs = [(p, r) for p, r in getattr(self, "dirs", []) if p != path]
+
+    def remove_item(self, path):
+        self.items = [i for i in getattr(self, "items", []) if i != path]
+
 
 def _all_status_states():
     return [FileState(f"Doc/{s.name.lower()}.txt", s, "h", "h", "h") for s in FileStatus]
@@ -98,21 +112,25 @@ def test_arvore_de_pastas_filtra_a_lista(app):
     win = MainWindow(FakeController(states), async_run=False)
     win.set_states(states)
 
-    # raiz "Cofre" selecionada por padrão → lista mostra TODOS os arquivos
-    assert win.tree.topLevelItemCount() == 3
     # a árvore de pastas tem a raiz ("") + todas as pastas e ancestrais
     assert _folder_paths(win) == {"", "Documents", "Documents/sub", "Fotos"}
 
-    # selecionar "Documents" filtra a lista para os arquivos sob ela (relativos à pasta)
+    # NÃO recursivo: "Documents" mostra só os arquivos DIRETOS dela (a.txt), não sub/b.txt
     _select_folder(win, "Documents")
     rels = {win.tree.topLevelItem(i).text(0) for i in range(win.tree.topLevelItemCount())}
-    assert rels == {"a.txt", "sub/b.txt"}
+    assert rels == {"a.txt"}
 
-    # selecionar "Fotos" → só c.png; o path absoluto fica preservado no FileState
+    # a subpasta "Documents/sub" mostra o b.txt
+    _select_folder(win, "Documents/sub")
+    rels = {win.tree.topLevelItem(i).text(0) for i in range(win.tree.topLevelItemCount())}
+    assert rels == {"b.txt"}
+
+    # selecionar "Fotos" → só c.png (nome exibido é o basename; path absoluto preservado)
     _select_folder(win, "Fotos")
     assert win.tree.topLevelItemCount() == 1
-    st = win.tree.topLevelItem(0).data(0, Qt.ItemDataRole.UserRole)
-    assert st.vault_path == "Fotos/c.png"
+    item = win.tree.topLevelItem(0)
+    assert item.text(0) == "c.png"
+    assert item.data(0, Qt.ItemDataRole.UserRole).vault_path == "Fotos/c.png"
 
 
 def test_acoes_chamam_o_controller(app):
@@ -143,6 +161,24 @@ def test_adicionar_arquivo_chama_o_controller(app):
 
     win.add_files([])                                      # nada escolhido → no-op
     assert sum(1 for c in ctrl.calls if c[0] == "add") == 1
+
+
+def test_dialogo_de_pastas_lista_e_atualiza(app):
+    from client.gui import SyncFoldersDialog
+
+    ctrl = FakeController(_all_status_states())
+    ctrl.dirs = [("/home/user/Documents", True)]
+    ctrl.items = ["/home/user/avulso.txt"]
+    dlg = SyncFoldersDialog(ctrl)
+
+    assert dlg.listw.count() == 2                          # 1 pasta + 1 avulso
+    ctrl.add_root("/home/user/Projetos")
+    dlg._reload()
+    assert dlg.listw.count() == 3
+    # a entrada nova carrega o tipo+caminho para o "Remover"
+    kinds = {dlg.listw.item(i).data(Qt.ItemDataRole.UserRole)[0]
+             for i in range(dlg.listw.count())}
+    assert kinds == {"dir", "item"}
 
 
 def test_atualizar_busca_do_controller(app):
