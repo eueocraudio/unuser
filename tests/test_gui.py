@@ -103,6 +103,66 @@ def _select_folder(win, path):
     raise AssertionError(f"pasta não encontrada: {path!r}")
 
 
+def _folder_item(win, path):
+    for it in _iter_folder_items(win):
+        if it.data(0, Qt.ItemDataRole.UserRole) == path:
+            return it
+    raise AssertionError(f"pasta não encontrada: {path!r}")
+
+
+def test_treeview_preserva_expansao_e_selecao(app):
+    states = [
+        FileState("Documents/sub/b.txt", FileStatus.IN_SYNC, "h", "h", "h"),
+        FileState("Fotos/c.png", FileStatus.SERVER_ONLY, None, None, "h"),
+    ]
+    win = MainWindow(FakeController(states), async_run=False)
+    win.set_states(states)
+    assert _folder_item(win, "Documents").isExpanded()   # 1ª montagem: tudo expandido
+
+    # usuário colapsa "Documents" e seleciona "Fotos"
+    _folder_item(win, "Documents").setExpanded(False)
+    _select_folder(win, "Fotos")
+
+    win.set_states(states)                                # rebuild (ex.: atualizar/ação)
+    assert _folder_item(win, "Documents").isExpanded() is False   # colapso preservado
+    assert win._current_folder() == "Fotos"              # seleção preservada
+
+    # reexpande e reconstrói → continua expandido
+    _folder_item(win, "Documents").setExpanded(True)
+    win.set_states(states)
+    assert _folder_item(win, "Documents").isExpanded() is True
+
+
+def test_treeview_persiste_estado_entre_sessoes(app):
+    """Fechar e reabrir o programa (novo MainWindow) deve restaurar expansão e seleção."""
+    store: dict = {}
+
+    class Persisted(FakeController):
+        def ui_state(self):
+            return dict(store)
+
+        def save_ui_state(self, state):
+            store.clear()
+            store.update(state)
+
+    states = [
+        FileState("Documents/sub/b.txt", FileStatus.IN_SYNC, "h", "h", "h"),
+        FileState("Fotos/c.png", FileStatus.SERVER_ONLY, None, None, "h"),
+    ]
+    win = MainWindow(Persisted(states), async_run=False)
+    win.set_states(states)
+    _folder_item(win, "Documents").setExpanded(False)     # colapsa → grava no store
+    _select_folder(win, "Fotos")                          # seleciona → grava no store
+    assert store.get("selected") == "Fotos"
+    assert "Documents" not in store.get("expanded", [])
+
+    # "reabrir o programa": novo MainWindow lê o mesmo store
+    win2 = MainWindow(Persisted(states), async_run=False)
+    win2.set_states(states)
+    assert _folder_item(win2, "Documents").isExpanded() is False   # NÃO voltou expandido
+    assert win2._current_folder() == "Fotos"
+
+
 def test_arvore_de_pastas_filtra_a_lista(app):
     states = [
         FileState("Documents/a.txt", FileStatus.IN_SYNC, "h", "h", "h"),
@@ -179,6 +239,19 @@ def test_dialogo_de_pastas_lista_e_atualiza(app):
     kinds = {dlg.listw.item(i).data(Qt.ItemDataRole.UserRole)[0]
              for i in range(dlg.listw.count())}
     assert kinds == {"dir", "item"}
+
+
+def test_itens_tem_icones_de_pasta_e_arquivo(app):
+    states = [FileState("Documents/a.txt", FileStatus.IN_SYNC, "h", "h", "h")]
+    win = MainWindow(FakeController(states), async_run=False)
+    win.set_states(states)
+
+    # pasta na árvore usa o ícone de diretório; raiz "Cofre" também
+    assert _folder_item(win, "Documents").icon(0).cacheKey() == win._icon_dir.cacheKey()
+    assert _folder_item(win, "").icon(0).cacheKey() == win._icon_dir.cacheKey()
+    # arquivo na lista usa o ícone de arquivo
+    _select_folder(win, "Documents")
+    assert win.tree.topLevelItem(0).icon(0).cacheKey() == win._icon_file.cacheKey()
 
 
 def test_atualizar_busca_do_controller(app):

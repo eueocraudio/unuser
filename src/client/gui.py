@@ -19,7 +19,7 @@ from PySide6.QtGui import QAction, QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QDialog, QHBoxLayout, QLabel, QListWidget,
     QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSplitter, QStatusBar,
-    QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QStyle, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .sync import FileState, FileStatus
@@ -99,6 +99,9 @@ class SyncFoldersDialog(QDialog):
         self.setWindowTitle("Pastas sincronizadas")
         self.setStyleSheet(DARK_QSS)
         self.resize(480, 340)
+        style = self.style()
+        self._icon_dir = style.standardIcon(QStyle.StandardPixmap.SP_DirIcon)
+        self._icon_file = style.standardIcon(QStyle.StandardPixmap.SP_FileIcon)
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel("Pastas (e arquivos avulsos) que entram no cofre:"))
         self.listw = QListWidget()
@@ -123,11 +126,11 @@ class SyncFoldersDialog(QDialog):
         data = self.controller.sync_folders()
         for path, rec in data.get("dirs", []):
             suffix = "recursivo" if rec else "não recursivo"
-            it = QListWidgetItem(f"📁 {path}   ({suffix})")
+            it = QListWidgetItem(self._icon_dir, f"{path}   ({suffix})")
             it.setData(Qt.ItemDataRole.UserRole, ("dir", path))
             self.listw.addItem(it)
         for item in data.get("items", []):
-            it = QListWidgetItem(f"📄 {item}   (arquivo avulso)")
+            it = QListWidgetItem(self._icon_file, f"{item}   (arquivo avulso)")
             it.setData(Qt.ItemDataRole.UserRole, ("item", item))
             self.listw.addItem(it)
 
@@ -154,12 +157,17 @@ class MainWindow(QMainWindow):
         self._async = async_run                          # False nos testes (determinístico)
         self._busy = False
         self._states: list[FileState] = []               # último status conhecido
+        self._expanded, self._selected = self._load_ui_state()  # estado da árvore (persistido)
         self._workers: set = set()                       # mantém refs vivas até concluírem
         self._pool = QThreadPool(self)
         self._pool.setMaxThreadCount(1)                  # serializa: 1 operação por vez
         self.setWindowTitle("unuser — Cofre")
         self.resize(820, 520)
         self.setStyleSheet(DARK_QSS)
+
+        style = self.style()                             # ícones padrão do Qt (sem assets próprios)
+        self._icon_dir = style.standardIcon(QStyle.StandardPixmap.SP_DirIcon)
+        self._icon_file = style.standardIcon(QStyle.StandardPixmap.SP_FileIcon)
 
         self._build_toolbar()
         self._build_body()
@@ -202,6 +210,8 @@ class MainWindow(QMainWindow):
         self.folder_tree.setHeaderLabel("Pastas")
         self.folder_tree.setColumnCount(1)
         self.folder_tree.itemSelectionChanged.connect(self._on_folder_selected)
+        self.folder_tree.itemExpanded.connect(self._remember_tree_state)
+        self.folder_tree.itemCollapsed.connect(self._remember_tree_state)
         split.addWidget(self.folder_tree)
 
         # direita: LISTA de arquivos da pasta selecionada
@@ -235,10 +245,20 @@ class MainWindow(QMainWindow):
         self._set_status_text(f"{len(self._states)} item(ns)")
 
     def _rebuild_folder_tree(self) -> None:
-        """(Re)constrói a árvore de pastas a partir dos caminhos de cofre conhecidos."""
+        """(Re)constrói a árvore preservando expansão/seleção — inclusive ENTRE sessões.
+
+        O estado (pastas expandidas + pasta selecionada) é lido/gravado via
+        ``controller.ui_state``/``save_ui_state`` (persistência em disco). Sem estado salvo
+        (1ª execução), a árvore abre toda expandida; pastas novas nascem colapsadas.
+        """
+        if self.folder_tree.topLevelItemCount():         # refresca com o estado vivo da sessão
+            self._expanded = self._expanded_folders()
+
+        self.folder_tree.blockSignals(True)              # não dispara seleção/expansão no rebuild
         self.folder_tree.clear()
         root = QTreeWidgetItem(["Cofre"])
-        root.setData(0, _ROLE, "")                       # "" = raiz (todos os arquivos)
+        root.setData(0, _ROLE, "")                       # "" = raiz
+        root.setIcon(0, self._icon_dir)
         self.folder_tree.addTopLevelItem(root)
         nodes: dict[str, QTreeWidgetItem] = {"": root}
         for folder in sorted(self._folders()):
@@ -246,12 +266,62 @@ class MainWindow(QMainWindow):
             parent = nodes.get("/".join(parts[:-1]), root)
             item = QTreeWidgetItem([parts[-1]])
             item.setData(0, _ROLE, folder)
+            item.setIcon(0, self._icon_dir)
             parent.addChild(item)
             nodes[folder] = item
-        self.folder_tree.expandAll()
-        default = self._default_node(root)               # abre numa pasta com arquivos
-        self.folder_tree.setCurrentItem(default)
-        self._show_folder(default.data(0, _ROLE) or "")
+        for path, item in nodes.items():                 # None = 1ª vez (sem estado): tudo aberto
+            item.setExpanded(True if self._expanded is None else path in self._expanded)
+        keep = nodes.get(self._selected) if self._selected is not None else None
+        target = keep or self._default_node(root)        # mantém a pasta; senão, padrão
+        self._selected = target.data(0, _ROLE) or ""
+        self.folder_tree.setCurrentItem(target)
+        self.folder_tree.blockSignals(False)
+
+        if self._expanded is None:                       # carimba o estado inicial (tudo aberto)
+            self._expanded = self._expanded_folders()
+        self._save_ui_state()
+        self._show_folder(self._selected)                # popula a lista da pasta atual
+
+    def _expanded_folders(self) -> set[str]:
+        """Conjunto das pastas atualmente expandidas na árvore (por vault path)."""
+        out: set[str] = set()
+        stack = [self.folder_tree.topLevelItem(i)
+                 for i in range(self.folder_tree.topLevelItemCount())]
+        while stack:
+            it = stack.pop()
+            if it is None:
+                continue
+            if it.isExpanded():
+                out.add(it.data(0, _ROLE) or "")
+            for i in range(it.childCount()):
+                stack.append(it.child(i))
+        return out
+
+    def _remember_tree_state(self, *_args) -> None:
+        """Salva o estado quando o usuário expande/colapsa um nó."""
+        self._expanded = self._expanded_folders()
+        self._save_ui_state()
+
+    def _load_ui_state(self):
+        """Lê o estado persistido da árvore: (expanded:set|None, selected:str|None)."""
+        st = {}
+        getter = getattr(self.controller, "ui_state", None)
+        if getter is not None:
+            try:
+                st = getter() or {}
+            except Exception:
+                st = {}
+        exp = st.get("expanded")
+        return (set(exp) if exp is not None else None), st.get("selected")
+
+    def _save_ui_state(self) -> None:
+        saver = getattr(self.controller, "save_ui_state", None)
+        if saver is None:
+            return
+        try:
+            saver({"expanded": sorted(self._expanded or []), "selected": self._selected})
+        except Exception:
+            pass                                         # persistência é best-effort
 
     def _default_node(self, root: QTreeWidgetItem) -> QTreeWidgetItem:
         """Pasta a selecionar ao (re)abrir: a raiz se ela tem arquivos soltos; senão a
@@ -274,7 +344,9 @@ class MainWindow(QMainWindow):
         return "" if it is None else (it.data(0, _ROLE) or "")
 
     def _on_folder_selected(self) -> None:
-        self._show_folder(self._current_folder())
+        self._selected = self._current_folder()
+        self._save_ui_state()
+        self._show_folder(self._selected)
 
     def _show_folder(self, folder: str) -> None:
         """Popula a lista da direita SÓ com os arquivos **diretamente** em ``folder`` (não
@@ -286,6 +358,7 @@ class MainWindow(QMainWindow):
             if parent != folder:
                 continue
             item = QTreeWidgetItem([name, st.status.value])
+            item.setIcon(0, self._icon_file)
             item.setForeground(1, QBrush(QColor(STATUS_COLORS.get(st.status, "#d6d6d6"))))
             item.setData(0, _ROLE, st)                   # FileState completo (path absoluto)
             self.tree.addTopLevelItem(item)

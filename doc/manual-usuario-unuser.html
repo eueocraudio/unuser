@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>unuser — Manual do Usuário</title>
+<style>
+  @page { size: A4; margin: 2cm 2cm; }
+  body {
+    font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+    font-size: 11pt; line-height: 1.45; color: #1a1a1a; max-width: 800px; margin: 0 auto;
+  }
+  h1 { font-size: 24pt; color: #14324b; margin: 0 0 2pt 0; }
+  h2 { font-size: 15pt; color: #14324b; border-bottom: 2px solid #14324b;
+       padding-bottom: 3pt; margin-top: 22pt; }
+  h3 { font-size: 12.5pt; color: #2a5d7c; margin-top: 16pt; margin-bottom: 4pt; }
+  .sub { color: #6a6a6a; font-size: 11pt; margin: 0 0 4pt 0; }
+  .meta { color: #6a6a6a; font-size: 9.5pt; margin-bottom: 10pt; }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 10pt; }
+  th, td { border: 1px solid #c9d4dc; padding: 5pt 8pt; text-align: left; vertical-align: top; }
+  th { background: #eef3f7; color: #14324b; }
+  code, pre { font-family: "Liberation Mono", "DejaVu Sans Mono", monospace; }
+  code { background: #f1f3f5; padding: 1px 4px; border-radius: 3px; font-size: 9.5pt; }
+  pre { background: #f6f8fa; border: 1px solid #dde3e8; border-radius: 5px;
+        padding: 9pt 11pt; font-size: 9pt; line-height: 1.35;
+        white-space: pre-wrap; overflow-wrap: anywhere; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+         margin-right: 5px; vertical-align: middle; }
+  .g{background:#2e9e44} .y{background:#e0a106} .b{background:#2f6fd0}
+  .r{background:#d23a3a} .t{background:#0f9aa6} .p{background:#7a3fb0}
+  ul, ol { margin: 4pt 0 4pt 0; padding-left: 20pt; }
+  li { margin: 2pt 0; }
+  .note { background: #fff8e6; border-left: 4px solid #e0a106; padding: 7pt 11pt; margin: 10pt 0; }
+  .danger { background: #fdecec; border-left: 4px solid #d23a3a; padding: 7pt 11pt; margin: 10pt 0; }
+  .ok { background: #ecf7ee; border-left: 4px solid #2e9e44; padding: 7pt 11pt; margin: 10pt 0; }
+  .footer { margin-top: 26pt; border-top: 1px solid #ccc; padding-top: 6pt;
+            color: #888; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+
+<h1>unuser</h1>
+<p class="sub">UniqueUser — Manual do Usuário</p>
+<p class="meta">Sincronização manual entre máquinas Debian, com cofre cifrado (zero-knowledge) · v1.0.1</p>
+
+<h2>1. O que é o unuser</h2>
+<p>
+O <strong>unuser</strong> sincroniza seus documentos entre várias máquinas Debian através de
+um servidor central que funciona como um <strong>cofre cego</strong>: ele guarda apenas dados
+<strong>já cifrados</strong> e nunca tem acesso ao conteúdo, aos nomes dos arquivos nem à
+estrutura de pastas. A sincronização é <strong>manual</strong> — você decide o que enviar,
+receber ou apagar, por status e ações na interface.
+</p>
+<p>São dois programas:</p>
+<ul>
+  <li><strong><code>unuserd</code></strong> — o servidor (cofre cego). Fica sempre ligado num
+      nó central; escuta só em <code>localhost</code> (o acesso de fora é via Tor).</li>
+  <li><strong><code>unuser</code></strong> — o cliente, que você usa em cada máquina. Tem uma
+      <strong>interface gráfica</strong> (estilo Explorer, tema escuro) e uma <strong>CLI</strong>
+      equivalente.</li>
+</ul>
+
+<h2>2. Como funciona (resumo)</h2>
+<p>
+A confidencialidade depende de <strong>dois fatores</strong>, que <strong>nunca</strong> saem
+da sua máquina nem chegam ao servidor:
+</p>
+<ul>
+  <li><strong>Passphrase</strong> — uma senha que você digita (ou passa por variável de ambiente).</li>
+  <li><strong>Keyfile</strong> — um arquivo de alta entropia (segredo) guardado localmente.</li>
+</ul>
+<p>
+Dos dois fatores deriva-se a chave-mestra (Argon2id + HKDF) e dela as chaves de cada finalidade.
+Cada arquivo é cifrado com uma chave própria (AES-256-GCM); o servidor só vê blocos cifrados,
+identificadores opacos e metadados de versão. Detalhes técnicos na
+<em>Especificação</em> (<code>doc/especificacao-unuser.html</code>).
+</p>
+<div class="danger">
+  <strong>Perdeu a passphrase OU o keyfile?</strong> O cofre fica irrecuperável — não há
+  recuperação possível (é o objetivo do zero-knowledge). Veja a seção <em>Segurança e backup</em>.
+</div>
+
+<h2>3. Requisitos</h2>
+<ul>
+  <li><strong>Debian 13 (trixie)</strong> (recomendado), <strong>Python ≥ 3.11</strong>.</li>
+  <li>Servidor: <code>python3</code> + <code>python3-cryptography</code>.</li>
+  <li>Cliente (CLI): <code>python3-cryptography</code>, <code>python3-argon2</code>
+      (o <code>blake3</code> vem embarcado no <code>.deb</code>).</li>
+  <li>Cliente (GUI): <code>python3-pyside6.qtwidgets</code> e, em Qt 6.5+,
+      <code>libxcb-cursor0</code>.</li>
+  <li>Acesso remoto entre máquinas: <strong>Tor</strong> (sem VPN).</li>
+</ul>
+
+<h2>4. Instalação</h2>
+
+<h3>4.1 Servidor — pacote <code>.deb</code></h3>
+<pre>sh packaging/build-deb.sh                       # gera dist/unuserd_1.0.1_all.deb (sem root)
+sudo apt install ./dist/unuserd_1.0.1_all.deb   # cria o usuário 'unuser' e /var/lib/unuser/vault
+sudoedit /etc/default/unuserd                   # storage / host / porta (e mTLS, se usar)
+sudo systemctl start unuserd</pre>
+<p>
+A instalação <strong>habilita</strong> (não inicia) o serviço, que roda como o usuário
+<code>unuser</code> com endurecimento systemd. O <code>unuserd</code> escuta só em
+<code>localhost</code> — quem publica o serviço para fora é o Tor (seção 9).
+</p>
+
+<h3>4.2 Cliente — pacote <code>.deb</code></h3>
+<pre>sh packaging/build-deb-client.sh                # gera dist/unuser_1.0.1_amd64.deb (sem root)
+sudo apt install ./dist/unuser_1.0.1_amd64.deb  # puxa python3-cryptography/-argon2</pre>
+<p>Para a interface gráfica:</p>
+<pre>sudo apt install python3-pyside6.qtwidgets libxcb-cursor0</pre>
+<div class="note">
+  O <code>blake3</code> não existe no apt, então vem <strong>embarcado</strong> no pacote do
+  cliente (por isso ele é <code>amd64</code> e fixado ao Python 3.13 do Debian 13). O CLI de
+  sincronização funciona sem o PySide6.
+</div>
+
+<h3>4.3 A partir do código (desenvolvimento)</h3>
+<pre>python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]"     # runtime + pytest
+.venv/bin/python -m pip install -e ".[gui]"     # opcional: PySide6 (GUI)</pre>
+<p>Em máquinas <strong>sem <code>ensurepip</code>/<code>python3-venv</code></strong> (e sem sudo):</p>
+<pre>python3 -m venv --without-pip .venv
+curl -sS -o /tmp/get-pip.py https://bootstrap.pypa.io/get-pip.py
+.venv/bin/python /tmp/get-pip.py
+.venv/bin/python -m pip install -e ".[dev]"</pre>
+
+<h3>4.4 Interface gráfica (PySide6) — atalho</h3>
+<p>
+O script <code>src/client/run-gui.sh</code> instala o extra <code>gui</code> e, em
+Debian 13/Qt 6.5+, baixa <code>libxcb-cursor0</code> <strong>sem root</strong> num cache local
+(<code>~/.cache/unuser/lib</code>) antes de abrir a janela:
+</p>
+<pre>UNUSER_PASSPHRASE='sua-senha' src/client/run-gui.sh</pre>
+
+<h2>5. Configuração</h2>
+<p>Nenhum arquivo de configuração contém segredos (passphrase/keyfile ficam de fora).</p>
+
+<h3>5.1 Keyfile e passphrase (os dois fatores)</h3>
+<p>Crie um keyfile de alta entropia e proteja-o:</p>
+<pre>mkdir -p ~/.config/unuser
+head -c 64 /dev/urandom &gt; ~/.config/unuser/keyfile
+chmod 600 ~/.config/unuser/keyfile</pre>
+<ul>
+  <li>Keyfile: <code>--keyfile &lt;caminho&gt;</code> ou variável <code>UNUSER_KEYFILE</code>.</li>
+  <li>Passphrase: digitada no prompt, ou variável <code>UNUSER_PASSPHRASE</code> (útil para a GUI).</li>
+</ul>
+<div class="danger">
+  O <strong>mesmo</strong> keyfile precisa estar em <strong>todas</strong> as máquinas do cofre
+  — copie-o por um canal seguro; <strong>não</strong> gere um novo em cada máquina (senão o
+  cofre não abre lá).
+</div>
+
+<h3>5.2 Conexão — <code>~/.env</code></h3>
+<pre>UNUSER_VAULT_ID=v:default
+UNUSER_CONN_MODE=direct          # direct (LAN/localhost) ou tor
+UNUSER_DIRECT_HOST=127.1.0.1
+UNUSER_DIRECT_PORT=8443
+# modo tor:
+UNUSER_TOR_ONION=
+UNUSER_TOR_PORT=8443
+UNUSER_TOR_SOCKS=127.1.0.1:9050</pre>
+
+<h3>5.3 O que entra no cofre — <code>~/.config/unuser/dirs.json</code></h3>
+<pre>{
+  "default_dirs": [
+    { "path": "/home/voce/Documents", "recursive": true }
+  ],
+  "extra_items": []
+}</pre>
+<p>
+Cada arquivo recebe um <em>nome no cofre</em> = nome da pasta-raiz + caminho relativo
+(ex.: <code>/home/voce/Documents/x.txt</code> → <code>Documents/x.txt</code>), estável entre
+máquinas com <code>$HOME</code> diferente. Você também pode adicionar/gerenciar pastas pela GUI
+(botão <strong>Pastas…</strong>), ou deixar que o botão <strong>Adicionar arquivo</strong>
+registre a pasta automaticamente (seção 7).
+</p>
+
+<h3>5.4 Exclusões — <code>~/.unuserignore</code></h3>
+<p>
+Globs estilo <code>.gitignore</code>. Já existem padrões de segurança embutidos (mesmo sem o
+arquivo): <code>.env</code>, <code>*.key</code>, <code>*.pem</code>, <code>.ssh/</code>,
+<code>.gnupg/</code>, <code>*.tmp</code>, <code>*.swp</code>, <code>.git/</code>.
+</p>
+
+<h2>6. Primeiro uso (CLI)</h2>
+<ol>
+  <li>Suba o servidor (num terminal ou via systemd / <code>src/server/run.sh</code>):
+    <pre>src/server/run.sh                 # cofre em ~/.local/share/unuser-vault, 127.1.0.1:8443</pre></li>
+  <li>No cliente, exporte os fatores e use os subcomandos:
+    <pre>export UNUSER_KEYFILE=~/.config/unuser/keyfile
+export UNUSER_PASSPHRASE='sua-senha'
+
+unuser status                     # compara local × servidor
+unuser send                       # envia tudo que mudou (ou: send Documents/x.txt)
+unuser receive Documents/x.txt    # baixa do cofre
+unuser delete  Documents/x.txt    # apaga (tombstone no servidor + remove local)</pre></li>
+</ol>
+<p>Na primeira vez, o cofre gera o salt do Argon2 e deriva as chaves; depois valida
+passphrase/keyfile abrindo o manifesto.</p>
+
+<h2>7. A interface gráfica</h2>
+<p>Abra com <code>unuser gui</code> (ou <code>src/client/run-gui.sh</code>). É um Explorer de
+duas áreas, em tema escuro:</p>
+<ul>
+  <li><strong>Esquerda — Pastas:</strong> a árvore de pastas do cofre. A expansão de cada nó e
+      a pasta selecionada são <strong>lembradas entre sessões</strong>.</li>
+  <li><strong>Direita — Arquivos:</strong> a lista dos arquivos <strong>diretamente</strong> na
+      pasta selecionada (não recursivo), cada um com sua cor de status.</li>
+</ul>
+<p><strong>Cores de status:</strong></p>
+<ul>
+  <li><span class="dot g"></span>Em sincronia &nbsp;
+      <span class="dot y"></span>Modificado no local &nbsp;
+      <span class="dot b"></span>Modificado no servidor</li>
+  <li><span class="dot r"></span>Conflito &nbsp;
+      <span class="dot t"></span>Só local &nbsp;
+      <span class="dot p"></span>Só no servidor</li>
+</ul>
+<p><strong>Botões</strong> (barra e menu de contexto):</p>
+<table>
+  <tr><th>Botão</th><th>O que faz</th></tr>
+  <tr><td>Atualizar</td><td>Recompara local × servidor.</td></tr>
+  <tr><td>Enviar →</td><td>Envia ao cofre os arquivos selecionados (cria nova versão).</td></tr>
+  <tr><td>← Receber</td><td>Baixa do cofre os arquivos selecionados.</td></tr>
+  <tr><td>Apagar</td><td>Apaga (tombstone no servidor + remove a cópia local).</td></tr>
+  <tr><td>Adicionar arquivo</td><td>Escolhe um arquivo e o envia. Se ele estiver fora das
+      pastas sincronizadas mas dentro de <code>~/</code>, a <strong>pasta</strong> dele é
+      registrada automaticamente (ou, se o arquivo estiver direto em <code>~/</code>, ele entra
+      como item avulso — a home inteira nunca é sincronizada).</td></tr>
+  <tr><td>Pastas…</td><td>Tela para listar, adicionar e remover pastas sincronizadas e itens avulsos.</td></tr>
+</table>
+<div class="note">
+  As operações de rede rodam fora da thread da interface — a janela não trava em conexões
+  lentas (ex.: via Tor). O estado da árvore é gravado em <code>~/.local/data/unuser/</code>.
+</div>
+
+<h2>8. Scripts de conveniência</h2>
+<table>
+  <tr><th>Script</th><th>Uso</th></tr>
+  <tr><td><code>src/server/run.sh</code></td><td>Sobe o <code>unuserd</code> (variáveis
+      <code>UNUSERD_STORAGE</code>/<code>HOST</code>/<code>PORT</code>; mTLS via
+      <code>UNUSERD_TLS_CERT/KEY/ALLOW</code>).</td></tr>
+  <tr><td><code>src/client/run.sh &lt;cmd&gt;</code></td><td>Cliente CLI; gera o keyfile na 1ª
+      vez e repassa <code>status|send|receive|delete|gui</code>.</td></tr>
+  <tr><td><code>src/client/run-gui.sh</code></td><td>Instala PySide6 + <code>libxcb-cursor0</code>
+      (sem root) e abre a GUI.</td></tr>
+</table>
+
+<h2>9. Acesso remoto por Tor</h2>
+<p>
+Entre máquinas, o transporte é por <strong>Tor</strong> (sem VPN): o <code>unuserd</code> só
+escuta TLS em <code>localhost</code>; o daemon <code>tor</code> publica um <em>Onion Service</em>;
+o cliente conecta ao endereço <code>.onion</code> pelo SOCKS5, com o mTLS por dentro do túnel.
+Configure no cliente <code>UNUSER_CONN_MODE=tor</code>, <code>UNUSER_TOR_ONION=…</code> e
+<code>UNUSER_TOR_SOCKS=127.1.0.1:9050</code>. Passo a passo em
+<code>doc/operacao-tor.md</code>.
+</p>
+
+<h2>10. Segurança e backup</h2>
+<ul>
+  <li>Faça <strong>backup do keyfile</strong> (offline, em local seguro) e memorize a passphrase.
+      Sem qualquer um dos dois, o cofre é irrecuperável.</li>
+  <li>O keyfile deve ser idêntico em todas as máquinas; copie-o por canal seguro.</li>
+  <li>O servidor é cego: vê apenas dados cifrados, ids opacos, o salt do Argon2 (público) e os
+      metadados de versão.</li>
+  <li>Mantenha o keyfile com permissão <code>600</code> e fora de pastas sincronizadas
+      (os padrões de exclusão já evitam <code>*.key</code>/<code>.ssh</code> etc.).</li>
+</ul>
+
+<h2>11. Solução de problemas</h2>
+<table>
+  <tr><th>Sintoma</th><th>Causa / solução</th></tr>
+  <tr><td>GUI não abre: <em>"Could not load the Qt platform plugin xcb"</em></td>
+      <td>Falta <code>libxcb-cursor0</code>: <code>sudo apt install libxcb-cursor0</code> (ou use
+          <code>run-gui.sh</code>, que resolve sem root).</td></tr>
+  <tr><td><em>passphrase/keyfile incorretos (ou salt divergente)</em></td>
+      <td>Confira a passphrase e se o keyfile é o mesmo das outras máquinas.</td></tr>
+  <tr><td>"fora das pastas sincronizadas"</td>
+      <td>O arquivo está fora de <code>~/</code>. Mova-o para dentro de <code>~/</code> ou
+          adicione a pasta em <strong>Pastas…</strong> / <code>dirs.json</code>.</td></tr>
+  <tr><td>GUI sem display</td>
+      <td>A interface precisa de um servidor gráfico (X11/Wayland). Use a CLI em servidores headless.</td></tr>
+</table>
+
+<h2>12. Onde fica o quê</h2>
+<table>
+  <tr><th>Caminho</th><th>Conteúdo</th></tr>
+  <tr><td><code>~/.env</code></td><td>Conexão (modo, host/porta, Tor).</td></tr>
+  <tr><td><code>~/.config/unuser/dirs.json</code></td><td>Pastas e itens sincronizados.</td></tr>
+  <tr><td><code>~/.config/unuser/index.db</code></td><td>Índice local (descartável).</td></tr>
+  <tr><td><code>~/.config/unuser/keyfile</code></td><td>Keyfile (segredo) — sugestão de local.</td></tr>
+  <tr><td><code>~/.unuserignore</code></td><td>Exclusões (globs).</td></tr>
+  <tr><td><code>~/.local/data/unuser/gui-state.json</code></td><td>Estado da GUI (expansão/seleção).</td></tr>
+  <tr><td><code>/var/lib/unuser/vault</code></td><td>Cofre no servidor (blobs + manifesto cifrados).</td></tr>
+</table>
+
+<p class="footer">unuser — Manual do Usuário · gerado a partir de doc/manual-usuario-unuser.html</p>
+
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>unuser — Notas de Versão v1.0.1</title>
+<style>
+  @page { size: A4; margin: 2cm 2cm; }
+  body {
+    font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif;
+    font-size: 11pt; line-height: 1.45; color: #1a1a1a; max-width: 800px; margin: 0 auto;
+  }
+  h1 { font-size: 24pt; color: #14324b; margin: 0 0 2pt 0; }
+  h2 { font-size: 15pt; color: #14324b; border-bottom: 2px solid #14324b;
+       padding-bottom: 3pt; margin-top: 22pt; }
+  .sub { color: #6a6a6a; font-size: 11pt; margin: 0 0 4pt 0; }
+  .meta { color: #6a6a6a; font-size: 9.5pt; margin-bottom: 10pt; }
+  code, pre { font-family: "Liberation Mono", "DejaVu Sans Mono", monospace; }
+  code { background: #f1f3f5; padding: 1px 4px; border-radius: 3px; font-size: 9.5pt; }
+  pre { background: #f6f8fa; border: 1px solid #dde3e8; border-radius: 5px;
+        padding: 9pt 11pt; font-size: 9pt; line-height: 1.35;
+        white-space: pre-wrap; overflow-wrap: anywhere; }
+  ul { margin: 4pt 0 4pt 0; padding-left: 20pt; }
+  li { margin: 3pt 0; }
+  .danger { background: #fdecec; border-left: 4px solid #d23a3a; padding: 7pt 11pt; margin: 10pt 0; }
+  .note { background: #fff8e6; border-left: 4px solid #e0a106; padding: 7pt 11pt; margin: 10pt 0; }
+  .footer { margin-top: 26pt; border-top: 1px solid #ccc; padding-top: 6pt;
+            color: #888; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+
+<h1>unuser — Notas de Versão</h1>
+<p class="sub">Cliente <strong>v1.0.1</strong></p>
+<p class="meta">04/06/2026 · sincronização manual com cofre cifrado (zero-knowledge)</p>
+
+<p>
+Primeira versão marcada do <strong>cliente</strong> (<code>unuser</code>): um corte de bug
+crítico de integridade e a repaginação completa da interface gráfica. Guia de instalação e
+uso no <em>Manual do Usuário</em> (<code>doc/manual-usuario-unuser.html</code> / PDF).
+</p>
+
+<h2>Correção crítica</h2>
+<div class="danger">
+  <strong><code>block_id</code> por arquivo — corrupção de dedup entre arquivos.</strong>
+  Blocos de conteúdo idêntico em arquivos diferentes geravam o mesmo <code>block_id</code>
+  (chave global) e colapsavam num único blob no servidor (endereçado por conteúdo), cifrado
+  com a FK de só um deles — deixando o(s) outro(s) <strong>irrecuperável(is)</strong> ao
+  decifrar. Agora a chave do <code>block_id</code> é derivada <strong>por arquivo</strong> da
+  FK (HKDF). A dedup <em>dentro</em> do mesmo arquivo é preservada e não há migração.
+  Cofres já corrompidos: reenviar os arquivos afetados regrava blobs corretos.
+</div>
+
+<h2>Novidades da interface gráfica</h2>
+<ul>
+  <li><strong>Layout Explorer de duas áreas, tema escuro:</strong> árvore de <strong>pastas</strong>
+      à esquerda; <strong>lista</strong> dos arquivos <strong>diretamente</strong> na pasta
+      selecionada à direita (não recursivo), com as 6 cores de status.</li>
+  <li><strong>Ícones</strong> de pasta e arquivo (padrão do Qt, sem assets proprietários).</li>
+  <li><strong>Adicionar arquivo:</strong> envia um arquivo escolhido; se estiver fora das
+      pastas sincronizadas mas dentro de <code>~/</code>, registra a pasta automaticamente
+      (ou o arquivo como item avulso, se estiver direto em <code>~/</code>).</li>
+  <li><strong>Tela "Pastas…":</strong> listar/adicionar/remover pastas sincronizadas e itens avulsos.</li>
+  <li><strong>Estado lembrado entre sessões:</strong> expansão da árvore e pasta selecionada
+      (em <code>~/.local/data/unuser/</code>).</li>
+  <li>As operações de rede não travam a janela (rodam fora da thread da interface).</li>
+</ul>
+
+<h2>Outras melhorias</h2>
+<ul>
+  <li><strong>Scripts de execução:</strong> <code>src/server/run.sh</code>,
+      <code>src/client/run.sh</code> e <code>src/client/run-gui.sh</code> (instala PySide6 e
+      resolve <code>libxcb-cursor0</code> sem root).</li>
+  <li><strong>Configuração mutável</strong> do <code>dirs.json</code> e mapeamento
+      caminho local → vault path (<code>resolve_or_register</code>).</li>
+  <li><strong>Documentação:</strong> manual do usuário em HTML + PDF (com instalação).</li>
+</ul>
+
+<h2>Instalação rápida</h2>
+<pre>sh packaging/build-deb-client.sh
+sudo apt install ./dist/unuser_1.0.1_amd64.deb
+sudo apt install python3-pyside6.qtwidgets libxcb-cursor0   # para a GUI
+unuser gui</pre>
+<div class="note">
+  Requer <strong>Debian 13 (trixie)</strong> / Python 3.13. O <code>blake3</code> vai
+  embarcado no pacote; o CLI funciona sem o PySide6.
+</div>
+
+<h2>Compatibilidade e segurança</h2>
+<ul>
+  <li>Sem mudança no protocolo nem no formato do manifesto (sem migração).</li>
+  <li>Cofre <strong>zero-knowledge</strong>: o servidor nunca vê conteúdo, nomes ou chaves.
+      Confidencialidade depende de <strong>passphrase + keyfile</strong> — faça backup do
+      keyfile; sem ele (ou a passphrase) o cofre é irrecuperável.</li>
+  <li>Acesso remoto por <strong>Tor</strong> + mTLS.</li>
+</ul>
+
+<p class="footer">unuser v1.0.1 · changelog completo em CHANGELOG.md</p>
+
+</body>
+</html>

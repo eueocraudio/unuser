@@ -33,6 +33,8 @@ DEFAULTS = {
     "ignore": _HOME / ".unuserignore",
     "index": _HOME / ".config" / "unuser" / "index.db",
 }
+# Dados temporários/descartáveis (ex.: estado da GUI). Criado recursivamente ao gravar.
+_DATA_DIR = _HOME / ".local" / "data" / "unuser"
 _LOCAL_CHANGED = {FileStatus.LOCAL_ONLY, FileStatus.LOCAL_MODIFIED}
 
 
@@ -175,6 +177,23 @@ def cmd_gui(args) -> int:
 
         def remove_item(self, path):
             return content.remove_item(path)
+
+        def ui_state(self):
+            import json
+            p = _DATA_DIR / "gui-state.json"
+            try:
+                return json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return {}
+
+        def save_ui_state(self, state):
+            import json
+            p = _DATA_DIR / "gui-state.json"
+            try:
+                p.parent.mkdir(parents=True, exist_ok=True)   # cria ~/.local/data/unuser
+                p.write_text(json.dumps(state), encoding="utf-8")
+            except OSError:
+                pass
 
         def connection_label(self):
             if conn.mode == "tor":
