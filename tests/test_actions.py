@@ -179,6 +179,18 @@ def test_vault_path_for_mapeia_inverso(tmp_path):
     assert r.vault_path_for(tmp_path / "fora.txt") is None     # fora de qualquer raiz
 
 
+def test_local_path_cai_em_home_quando_raiz_nao_registrada(tmp_path):
+    """Receber numa máquina sem a pasta configurada baixa em ~/<prefixo>/ (não falha)."""
+    home = tmp_path / "home"
+    # raiz registrada direto sob HOME: o fallback é consistente com o caminho normal
+    r = PathResolver([(home / "Documents", True)], extra_items=[home / "avulso.txt"],
+                     home=home)
+    assert r.local_path("Documents/x.pdf") == home / "Documents" / "x.pdf"   # registrada
+    assert r.local_path("Downloads/y.zip") == home / "Downloads" / "y.zip"   # NÃO registrada → ~/
+    assert r.local_path("solto.txt") == home / "solto.txt"                   # avulso desconhecido → ~/
+    assert r.local_path("avulso.txt") == home / "avulso.txt"                 # avulso registrado
+
+
 # --- conflito (CAS) ----------------------------------------------------------
 
 def test_push_concorrente_levanta_conflito(tmp_path, keyring):

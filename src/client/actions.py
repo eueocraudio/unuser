@@ -40,9 +40,16 @@ class PathResolver:
 
     Como o *vault path* é ``<nome-da-raiz>/<relativo>``, o caminho local é
     ``raiz.parent / vault_path``. Itens avulsos entram pelo basename.
+
+    Quando o prefixo não corresponde a nenhuma raiz/ítem registrado (típico ao
+    **receber** numa máquina nova que ainda não configurou as pastas), cai em
+    ``~/<vault_path>`` em vez de falhar — assim ``Documents/x`` baixa para
+    ``~/Documents/x``. Isso é consistente com o layout usual (raízes direto sob
+    ``$HOME``), onde ``raiz.parent / vault_path`` já é ``~/vault_path``.
     """
 
-    def __init__(self, dirs=(), extra_items=()):
+    def __init__(self, dirs=(), extra_items=(), *, home: Path | None = None):
+        self.home = Path(home) if home is not None else Path.home()
         self.roots: dict[str, Path] = {}
         for entry in dirs:
             path, _rec = entry if isinstance(entry, tuple) else (entry, True)
@@ -55,10 +62,10 @@ class PathResolver:
         if not sep:                                   # item avulso (só basename)
             if vault_path in self.extras:
                 return self.extras[vault_path]
-            raise KeyError(f"item avulso desconhecido: {vault_path!r}")
+            return self.home / vault_path             # fallback: baixa em ~/
         root = self.roots.get(prefix)
         if root is None:
-            raise KeyError(f"raiz desconhecida para o prefixo {prefix!r}")
+            return self.home / vault_path             # raiz não registrada → ~/<prefixo>/...
         return root.parent / vault_path
 
     def vault_path_for(self, local_path) -> str | None:
