@@ -4,6 +4,17 @@ Todas as mudanças notáveis do **unuser**. Formato baseado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/); versionamento
 [SemVer](https://semver.org/lang/pt-BR/).
 
+## [1.2.0] — 2026-06-07
+
+### Adicionado
+- **GUI — colunas de Tamanho e Data** na lista de arquivos (passa de 2 para 4 colunas:
+  Arquivo, Status, Tamanho, Data) e **ordenação** ao clicar no cabeçalho, por **nome,
+  status, tamanho e data**. A ordenação é por **valor** (tamanho numérico, data
+  cronológica), não pelo texto exibido. Tamanho/data vêm do disco local ou, para arquivos
+  que só existem no servidor, da versão atual no manifesto (`FileState.size`/`.mtime`).
+
+[1.2.0]: https://github.com/eueocraudio/unuser/releases/tag/v1.2.0
+
 ## [1.1.0] — 2026-06-07
 
 Servidor mais fácil de operar, projeto aberto (MIT) e correção do timeout em arquivos
