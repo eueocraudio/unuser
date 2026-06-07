@@ -6,7 +6,7 @@ manifestos **cifrados** e nunca vê conteúdo, nomes de arquivos ou chaves. O cl
 (`unuser`) é um app gráfico **estilo Explorer em tema escuro** (PySide6) com CLI
 equivalente; a sincronização é controlada por status e ações na interface (nada automático).
 
-**Estado:** **v1.0.1** (cliente). Roadmap (Fases 1–6) concluído + refinos. ~166 testes
+**Estado:** **v1.1.0**. Roadmap (Fases 1–6) concluído + refinos. ~168 testes
 passando. Código aberto sob licença [MIT](LICENSE).
 
 > **Manual do usuário** (instalação, configuração e uso, passo a passo):
@@ -94,7 +94,7 @@ Requer **Debian 13 (trixie)**.
 
 ```bash
 sh packaging/build-deb.sh                       # gera dist/unuserd_<versao>_all.deb
-sudo apt install ./dist/unuserd_1.0.1_all.deb   # cria usuário 'unuser' + /var/lib/unuser/vault
+sudo apt install ./dist/unuserd_1.1.0_all.deb   # cria usuário 'unuser' + /var/lib/unuser/vault
 sudoedit /etc/default/unuserd                   # storage/host/porta e, p/ mTLS, --tls-*
 sudo systemctl start unuserd
 ```
@@ -103,7 +103,7 @@ sudo systemctl start unuserd
 
 ```bash
 sh packaging/build-deb-client.sh                # gera dist/unuser_<versao>_amd64.deb
-sudo apt install ./dist/unuser_1.0.1_amd64.deb  # puxa python3-cryptography/-argon2; blake3 embarcado
+sudo apt install ./dist/unuser_1.1.0_amd64.deb  # puxa python3-cryptography/-argon2; blake3 embarcado
 ```
 
 > A **GUI** recomenda `python3-pyside6.qtwidgets` (`sudo apt install python3-pyside6.qtwidgets`).

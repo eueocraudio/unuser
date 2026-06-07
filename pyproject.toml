@@ -1,6 +1,6 @@
 [project]
 name = "unuser"
-version = "1.0.1"
+version = "1.1.0"
 description = "UniqueUser — sincronização hierárquica com cofre cifrado (zero-knowledge)"
 readme = "README.md"
 license = { text = "MIT" }
