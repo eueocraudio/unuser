@@ -254,9 +254,12 @@ da rede; layout:
 - **Esquerda:** `folder_tree` — TreeView de **pastas** (hierárquica, raiz "Cofre"),
   construída a partir dos vault paths conhecidos.
 - **Direita:** `tree` — **lista** dos arquivos **diretamente** na pasta selecionada (NÃO
-  recursivo; subpastas ficam na árvore), cada um com a sua cor de status (`STATUS_COLORS`,
-  6 tons vivos p/ fundo escuro). Exibe o basename; o `FileState` (com vault path absoluto)
-  fica no `UserRole`.
+  recursivo; subpastas ficam na árvore), com **4 colunas ordenáveis**: Arquivo, Status
+  (na cor de `STATUS_COLORS`), Tamanho e Data. A ordenação é por **chave** em `_SORT_ROLE`
+  (`UserRole+1`) via `_FileItem.__lt__` — tamanho ordena numérico e data cronológico, não
+  por texto. Tamanho/data vêm de `FileState.size`/`.mtime` (do disco local, ou da versão
+  atual no servidor para quem só existe lá; ver `sync._remote_meta`/`_ts_to_epoch`). O
+  `FileState` completo (vault path absoluto) fica no `UserRole` da coluna 0.
 - **Ícones:** pastas e arquivos usam os ícones padrão do Qt (`QStyle.SP_DirIcon`/
   `SP_FileIcon`, criados em `MainWindow.__init__` como `_icon_dir`/`_icon_file`) — sem assets
   próprios; aplicados na árvore, na lista e no `SyncFoldersDialog`.

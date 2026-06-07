@@ -13,6 +13,7 @@ em cima desta visão.
 
 from __future__ import annotations
 
+import datetime as _dt
 from dataclasses import dataclass
 from enum import Enum
 
@@ -42,6 +43,8 @@ class FileState:
     local_hash: str | None
     base_hash: str | None
     remote_hash: str | None   # hash, None (ausente) ou DELETED (tombstone)
+    size: int | None = None   # bytes: do arquivo local, senão da versão atual no servidor
+    mtime: float | None = None  # data de modificação (epoch UTC): local, senão o ts da versão
 
 
 def classify(local: str | None, base: str | None, remote: str | None) -> FileStatus:
@@ -89,6 +92,26 @@ def _remote_hashes(manifest: VaultManifest) -> dict[str, str]:
     return out
 
 
+def _remote_meta(manifest: VaultManifest) -> dict[str, tuple[int | None, float | None]]:
+    """``vault_path -> (size, mtime_epoch)`` da versão atual (p/ exibir em quem só existe
+    no servidor). O ``ts`` do manifesto é UTC ``YYYY-MM-DD HH:MM:SS``."""
+    out: dict[str, tuple[int | None, float | None]] = {}
+    for fm in manifest.files.values():
+        cur = fm.current
+        out[fm.path] = (cur.size, _ts_to_epoch(cur.ts))
+    return out
+
+
+def _ts_to_epoch(ts: str | None) -> float | None:
+    if not ts:
+        return None
+    try:
+        d = _dt.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+        return d.replace(tzinfo=_dt.timezone.utc).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
 class SyncEngine:
     """Junta scanner local, índice (base) e manifesto (servidor) numa visão de status."""
 
@@ -105,9 +128,15 @@ class SyncEngine:
         local = {vp: sf.hash for vp, sf in scanned.items()}
         base = self.base_hashes()
         remote = _remote_hashes(manifest) if manifest is not None else {}
+        rmeta = _remote_meta(manifest) if manifest is not None else {}
 
         out: list[FileState] = []
         for vp in sorted(set(local) | set(base) | set(remote)):
             lh, bh, rh = local.get(vp), base.get(vp), remote.get(vp)
-            out.append(FileState(vp, classify(lh, bh, rh), lh, bh, rh))
+            sf = scanned.get(vp)
+            if sf is not None:                       # tem cópia local → tamanho/data do disco
+                size, mtime = sf.size, sf.mtime
+            else:                                    # só no servidor → da versão atual
+                size, mtime = rmeta.get(vp, (None, None))
+            out.append(FileState(vp, classify(lh, bh, rh), lh, bh, rh, size=size, mtime=mtime))
         return out
