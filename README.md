@@ -7,7 +7,7 @@ manifestos **cifrados** e nunca vê conteúdo, nomes de arquivos ou chaves. O cl
 equivalente; a sincronização é controlada por status e ações na interface (nada automático).
 
 **Estado:** **v1.0.1** (cliente). Roadmap (Fases 1–6) concluído + refinos. ~166 testes
-passando. Repositório privado.
+passando. Código aberto sob licença [MIT](LICENSE).
 
 > **Manual do usuário** (instalação, configuração e uso, passo a passo):
 > [`doc/manual-usuario-unuser.html`](doc/manual-usuario-unuser.html) (+ PDF).
@@ -56,6 +56,19 @@ sudo apt install ./dist/unuser_1.0.1_amd64.deb  # puxa python3-cryptography/-arg
 > A **GUI** recomenda `python3-pyside6.qtwidgets` (`sudo apt install python3-pyside6.qtwidgets`).
 > Em Debian 13/Qt 6.5+ o plugin xcb também precisa de **`libxcb-cursor0`**
 > (`sudo apt install libxcb-cursor0`). O CLI de sync funciona sem nada disso.
+
+### Opção C — só o cliente GUI, numa máquina nova (script tudo-em-um)
+
+Baixa o código, monta o ambiente, instala a GUI, configura a conexão e abre a interface:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eueocraudio/unuser/main/install-gui-client.sh | bash
+```
+
+Variáveis úteis (ver o cabeçalho de [`install-gui-client.sh`](install-gui-client.sh)):
+`UNUSER_SERVER=host:porta` (servidor), `UNUSER_KEYFILE_SRC=usuario@maquina:~/.config/unuser/keyfile`
+(copiar o keyfile do cofre **existente** — obrigatório, senão o cofre não abre),
+`UNUSER_NEW_VAULT=1` (gerar keyfile para um cofre **novo**).
 
 ### Opção B — a partir do código (desenvolvimento)
 
