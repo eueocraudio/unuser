@@ -7,7 +7,7 @@ manifestos **cifrados** e nunca vê conteúdo, nomes de arquivos ou chaves. O cl
 equivalente; a sincronização é controlada por status e ações na interface (nada automático).
 
 **Estado:** **v1.0.1** (cliente). Roadmap (Fases 1–6) concluído + refinos. ~166 testes
-passando. Repositório privado.
+passando. Código aberto sob licença [MIT](LICENSE).
 
 > **Manual do usuário** (instalação, configuração e uso, passo a passo):
 > [`doc/manual-usuario-unuser.html`](doc/manual-usuario-unuser.html) (+ PDF).
@@ -29,6 +29,59 @@ passando. Repositório privado.
 
 A especificação canônica está em [`doc/especificacao-unuser.html`](doc/especificacao-unuser.html)
 (+ PDF). Detalhes de arquitetura e convenções para contribuir: [`CLAUDE.md`](CLAUDE.md).
+
+## Requisitos
+
+Base comum: **Python ≥ 3.11** (o código usa `X | None`). Alvo: **Debian 13 (trixie)** /
+Ubuntu (os comandos abaixo usam `apt`; em outras distros, instale os equivalentes).
+
+### Dependências de sistema (apt)
+
+```bash
+# 1) Base — clonar o código, Python, venv e pip
+sudo apt install -y git python3 python3-venv python3-pip ca-certificates curl
+
+# 2) GUI do cliente — bibliotecas de runtime do Qt/PySide6
+sudo apt install -y libxcb-cursor0 libxkbcommon0 libgl1
+#    (alternativa: usar o PySide6 do sistema em vez do pip)
+#    sudo apt install -y python3-pyside6.qtwidgets
+
+# 3) Servidor via .deb — o apt resolve sozinho ao instalar, mas se quiser adiantar:
+sudo apt install -y python3-cryptography adduser
+
+# 4) Opcionais
+sudo apt install -y libreoffice     # regenerar os PDFs da documentação (soffice)
+sudo apt install -y tor             # acesso remoto via Onion Service (Tor)
+#    Construir os .deb não exige pacote extra: o dpkg-deb já vem com o Debian (pacote dpkg).
+```
+
+> **Sem `ensurepip`/`python3-venv`** (ou sem sudo)? Monte o venv sem pip e faça bootstrap:
+> ```bash
+> python3 -m venv --without-pip .venv
+> curl -sS -o /tmp/get-pip.py https://bootstrap.pypa.io/get-pip.py
+> .venv/bin/python /tmp/get-pip.py
+> ```
+
+### Dependências Python (instaladas pelo `pip` a partir do `pyproject.toml`)
+
+| Grupo | Pacotes | Para quê | Como instalar |
+|-------|---------|----------|---------------|
+| runtime | `cryptography>=42`, `argon2-cffi>=23`, `blake3>=0.4` | cliente (cifra/decifra) e servidor com mTLS | `pip install -e .` |
+| `gui` | `PySide6-Essentials>=6.7` | interface gráfica do cliente | `pip install -e ".[gui]"` |
+| `dev` | `pytest>=8` | rodar os testes | `pip install -e ".[dev]"` |
+
+Quem precisa de quê:
+
+- **Cliente (CLI):** base apt (1) + `cryptography`/`argon2-cffi`/`blake3` (runtime).
+- **Cliente (GUI):** o acima + apt (2) + extra `gui`.
+- **Servidor:** base apt (1); `cryptography` só é necessária **se ligar o mTLS**
+  (o cofre-cego puro roda só com a stdlib). **Não** precisa de PySide6/argon2/blake3.
+
+```bash
+# tudo do cliente, incluindo GUI e testes, num venv:
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[gui,dev]"
+```
 
 ## Instalação
 
@@ -56,6 +109,19 @@ sudo apt install ./dist/unuser_1.0.1_amd64.deb  # puxa python3-cryptography/-arg
 > A **GUI** recomenda `python3-pyside6.qtwidgets` (`sudo apt install python3-pyside6.qtwidgets`).
 > Em Debian 13/Qt 6.5+ o plugin xcb também precisa de **`libxcb-cursor0`**
 > (`sudo apt install libxcb-cursor0`). O CLI de sync funciona sem nada disso.
+
+### Opção C — só o cliente GUI, numa máquina nova (script tudo-em-um)
+
+Baixa o código, monta o ambiente, instala a GUI, configura a conexão e abre a interface:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eueocraudio/unuser/main/install-gui-client.sh | bash
+```
+
+Variáveis úteis (ver o cabeçalho de [`install-gui-client.sh`](install-gui-client.sh)):
+`UNUSER_SERVER=host:porta` (servidor), `UNUSER_KEYFILE_SRC=usuario@maquina:~/.config/unuser/keyfile`
+(copiar o keyfile do cofre **existente** — obrigatório, senão o cofre não abre),
+`UNUSER_NEW_VAULT=1` (gerar keyfile para um cofre **novo**).
 
 ### Opção B — a partir do código (desenvolvimento)
 
