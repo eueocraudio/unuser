@@ -22,7 +22,7 @@ GUI repaginada: tema escuro + Explorer de duas áreas + ícones + adicionar arqu
 persistência do estado da árvore; **porta padrão 8080**, **mTLS auto-gerado no `postinst`**,
 **storage configurável** (`UNUSERD_STORAGE`), **keep-alive no transporte** (corrige timeout
 em arquivos grandes), **chunks de 512 KiB**, **licença MIT** + `install-gui-client.sh`).
-Projeto em **v1.1.0** (open source, MIT). ~168 testes passando. Executáveis
+Projeto em **v1.2.0** (open source, MIT). ~169 testes passando. Executáveis
 `unuser` (cliente) e `unuserd` (servidor); `.deb` de ambos em `packaging/`; scripts de
 conveniência em `src/server/run.sh`, `src/client/run.sh`, `src/client/run-gui.sh`.
 
