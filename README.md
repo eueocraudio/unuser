@@ -112,16 +112,28 @@ sudo apt install ./dist/unuser_1.2.0_amd64.deb  # puxa python3-cryptography/-arg
 
 ### Opção C — só o cliente GUI, numa máquina nova (script tudo-em-um)
 
-Baixa o código, monta o ambiente, instala a GUI, configura a conexão e abre a interface:
+Baixa o código, monta o ambiente, instala a GUI, configura a conexão e abre a interface.
+Informe o **seu** servidor em `UNUSER_SERVER` (default `127.0.0.1:8080`). No pipe, as
+variáveis vão no **`bash`** (não no `curl`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/eueocraudio/unuser/main/install-gui-client.sh | bash
+curl -fsSL https://raw.githubusercontent.com/eueocraudio/unuser/main/install-gui-client.sh \
+  | UNUSER_SERVER=10.0.0.5:8080 bash
+```
+
+Para abrir um cofre **existente**, copie junto o keyfile da máquina de origem:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/eueocraudio/unuser/main/install-gui-client.sh \
+  | UNUSER_SERVER=10.0.0.5:8080 \
+    UNUSER_KEYFILE_SRC=usuario@maquina-origem:~/.config/unuser/keyfile bash
 ```
 
 Variáveis úteis (ver o cabeçalho de [`install-gui-client.sh`](install-gui-client.sh)):
-`UNUSER_SERVER=host:porta` (servidor), `UNUSER_KEYFILE_SRC=usuario@maquina:~/.config/unuser/keyfile`
-(copiar o keyfile do cofre **existente** — obrigatório, senão o cofre não abre),
-`UNUSER_NEW_VAULT=1` (gerar keyfile para um cofre **novo**).
+`UNUSER_SERVER=host:porta` (servidor; default `127.0.0.1:8080`),
+`UNUSER_KEYFILE_SRC=usuario@maquina:~/.config/unuser/keyfile` (copiar o keyfile do cofre
+**existente** — obrigatório, senão o cofre não abre), `UNUSER_NEW_VAULT=1` (gerar keyfile
+para um cofre **novo**).
 
 ### Opção B — a partir do código (desenvolvimento)
 
