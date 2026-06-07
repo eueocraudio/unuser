@@ -241,8 +241,26 @@ def test_acoes_chamam_o_controller(app):
     assert ("send", paths) in ctrl.calls
 
     win.tree.selectAll()                               # ação repopula e limpa a seleção
+    win._confirm_delete = lambda paths: True           # confirma o alerta (sem diálogo modal)
     win._run("delete")
     assert ("delete", paths) in ctrl.calls
+
+
+def test_apagar_pede_confirmacao_e_cancela(app):
+    """Apagar só chama o controller se a confirmação for aceita; recusar não apaga nada."""
+    ctrl = FakeController(_all_status_states())
+    win = MainWindow(ctrl, async_run=False)
+    win.set_states(ctrl.status())
+    win.tree.selectAll()
+
+    win._confirm_delete = lambda paths: False          # usuário recusa o alerta
+    win._run("delete")
+    assert not any(c[0] == "delete" for c in ctrl.calls)   # nada apagado
+
+    win._confirm_delete = lambda paths: True           # usuário confirma
+    win.tree.selectAll()
+    win._run("delete")
+    assert any(c[0] == "delete" for c in ctrl.calls)       # agora apagou
 
 
 def test_adicionar_arquivo_chama_o_controller(app):

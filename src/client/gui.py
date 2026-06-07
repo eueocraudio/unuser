@@ -435,11 +435,32 @@ class MainWindow(QMainWindow):
             self._set_status_text("selecione ao menos um arquivo")
             return
 
+        if key == "delete" and not self._confirm_delete(paths):
+            self._set_status_text("apagar cancelado")
+            return
+
         def work():
             getattr(self.controller, key)(paths)           # ação (pode demorar via Tor)
             return self.controller.status()                # já devolve o novo estado
 
         self._submit(work, self.set_states, f"{key}: {len(paths)} item(ns)")
+
+    def _confirm_delete(self, paths: list[str]) -> bool:
+        """Alerta de confirmação antes de apagar. Apagar grava um **tombstone** no
+        servidor (apaga do cofre mantendo histórico) e remove a cópia local."""
+        n = len(paths)
+        amostra = "\n".join("• " + p for p in paths[:10])
+        if n > 10:
+            amostra += f"\n… (+{n - 10})"
+        resp = QMessageBox.question(
+            self, "Apagar do cofre",
+            f"Apagar {n} item(ns) do servidor e localmente?\n"
+            f"Grava um tombstone no cofre (mantém histórico) e remove a cópia local.\n\n"
+            f"{amostra}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,                 # botão padrão: Não
+        )
+        return resp == QMessageBox.StandardButton.Yes
 
     def _pick_and_add(self) -> None:
         """Abre um seletor de arquivos e adiciona os escolhidos ao cofre."""
