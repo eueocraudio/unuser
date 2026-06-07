@@ -279,6 +279,11 @@ de contexto da lista.
   trava em rede lenta via Tor. O índice usa `check_same_thread=False` (acesso serializado
   pelo pool); o estado da GUI é gravado em **arquivo** (não no SQLite) para não tocar a
   conexão a partir da thread da UI.
+- **Barra de progresso (rodapé):** `QProgressBar` na status bar, mostrada enquanto ocupado.
+  O `_Worker` passa um `report(feitos, total)` à função de trabalho (sinal `progress`,
+  thread-safe → `_on_progress` na UI). As ações repassam `progress=` ao controller, que
+  reporta por item: `receive`/`delete` no laço, `send` via `actions.send_many(..., progress=)`
+  (1 chamada por arquivo enviado; em retry de CAS o contador reinicia).
 
 Lançada por `unuser gui` (import tardio do PySide6, dep opcional `gui`) ou pelo
 `src/client/run-gui.sh` (instala o extra `gui` + resolve `libxcb-cursor0` sem root).

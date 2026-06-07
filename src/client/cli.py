@@ -144,23 +144,29 @@ def cmd_gui(args) -> int:
         def status(self):
             return engine.status(content.scan(ignore_path=args.ignore), session._load()[1])
 
-        def send(self, paths):
+        def send(self, paths, progress=None):
             scanned = content.scan(ignore_path=args.ignore)
-            session.send_many([scanned[p] for p in paths if p in scanned])
+            session.send_many([scanned[p] for p in paths if p in scanned], progress=progress)
 
-        def receive(self, paths):
-            for p in paths:
+        def receive(self, paths, progress=None):
+            total = len(paths)
+            for i, p in enumerate(paths, 1):
                 session.receive(p)
+                if progress:
+                    progress(i, total)
 
-        def delete(self, paths):
-            for p in paths:
+        def delete(self, paths, progress=None):
+            total = len(paths)
+            for i, p in enumerate(paths, 1):
                 session.delete(p)
+                if progress:
+                    progress(i, total)
 
-        def add(self, local_paths):
+        def add(self, local_paths, progress=None):
             # resolve_or_register: se o arquivo está fora das raízes mas dentro de ~/,
             # registra a pasta (ou o avulso) no dirs.json antes de enviar.
             sfs = [scanner.scan_one(lp, content.resolve_or_register(lp)) for lp in local_paths]
-            session.send_many(sfs)
+            session.send_many(sfs, progress=progress)
 
         def add_start_dir(self):
             dirs = content.default_dirs

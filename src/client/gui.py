@@ -18,8 +18,8 @@ from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QAction, QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QDialog, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton, QSplitter, QStatusBar,
-    QStyle, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressBar, QPushButton, QSplitter,
+    QStatusBar, QStyle, QToolBar, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .sync import FileState, FileStatus
@@ -105,6 +105,7 @@ _ACTIONS = [
 class _WorkerSignals(QObject):
     done = Signal(object)
     failed = Signal(str)
+    progress = Signal(int, int)                          # (feitos, total)
 
 
 class _Worker(QRunnable):
@@ -118,7 +119,8 @@ class _Worker(QRunnable):
 
     def run(self) -> None:
         try:
-            self.signals.done.emit(self._fn())
+            # fn recebe um reporter de progresso (feitos, total); emitir é thread-safe.
+            self.signals.done.emit(self._fn(self.signals.progress.emit))
         except Exception as e:                          # qualquer erro vai para a UI
             self.signals.failed.emit(f"{type(e).__name__}: {e}")
 
@@ -209,6 +211,10 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_body()
         self.setStatusBar(QStatusBar())
+        self._progress = QProgressBar()                  # rodapé: progresso das operações
+        self._progress.setMaximumWidth(240)
+        self._progress.setVisible(False)
+        self.statusBar().addPermanentWidget(self._progress)
         self._set_status_text("pronto")
 
     # --- construção da UI ---------------------------------------------------
@@ -428,7 +434,7 @@ class MainWindow(QMainWindow):
         if self._busy:                                     # uma operação por vez
             return
         if key == "atualizar":
-            self._submit(self.controller.status, self.set_states, "atualizado")
+            self._submit(lambda report: self.controller.status(), self.set_states, "atualizado")
             return
         paths = self.selected_paths()
         if not paths:
@@ -439,8 +445,8 @@ class MainWindow(QMainWindow):
             self._set_status_text("apagar cancelado")
             return
 
-        def work():
-            getattr(self.controller, key)(paths)           # ação (pode demorar via Tor)
+        def work(report):
+            getattr(self.controller, key)(paths, progress=report)  # ação (pode demorar via Tor)
             return self.controller.status()                # já devolve o novo estado
 
         self._submit(work, self.set_states, f"{key}: {len(paths)} item(ns)")
@@ -476,8 +482,8 @@ class MainWindow(QMainWindow):
         if self._busy or not local_paths:
             return
 
-        def work():
-            self.controller.add(local_paths)               # mapeia p/ vault path e envia
+        def work(report):
+            self.controller.add(local_paths, progress=report)  # mapeia p/ vault path e envia
             return self.controller.status()
 
         self._submit(work, self.set_states, f"adicionado(s) {len(local_paths)} arquivo(s)")
@@ -500,13 +506,14 @@ class MainWindow(QMainWindow):
 
         if not self._async:                                # caminho síncrono (testes)
             try:
-                deliver(fn())
+                deliver(fn(self._on_progress))
             except Exception as e:
                 self._fail(f"{type(e).__name__}: {e}")
             return
         worker = _Worker(fn)
         worker.setAutoDelete(False)                        # nós controlamos o tempo de vida
         self._workers.add(worker)                          # senão é coletado antes do sinal
+        worker.signals.progress.connect(self._on_progress)
         worker.signals.done.connect(deliver)
         worker.signals.failed.connect(self._fail)
         worker.signals.done.connect(lambda *_: self._workers.discard(worker))
@@ -524,7 +531,19 @@ class MainWindow(QMainWindow):
             act.setEnabled(not busy)
         self.setCursor(Qt.CursorShape.WaitCursor if busy else Qt.CursorShape.ArrowCursor)
         if busy:
+            self._progress.setRange(0, 0)                # indeterminado até o 1º progresso
+            self._progress.reset()
+            self._progress.setVisible(True)
             self._set_status_text("trabalhando…")
+        else:
+            self._progress.setVisible(False)
+
+    def _on_progress(self, done: int, total: int) -> None:
+        """Atualiza a barra de progresso do rodapé (na thread da UI)."""
+        if total > 0:
+            self._progress.setRange(0, total)
+            self._progress.setValue(done)
+            self._set_status_text(f"trabalhando… {done}/{total}")
 
     def _context_menu(self, pos) -> None:
         if not self.tree.selectedItems():
