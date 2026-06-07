@@ -32,16 +32,18 @@ class FakeController:
     def status(self):
         return self._states
 
-    def send(self, paths):
+    def send(self, paths, progress=None):
         self.calls.append(("send", paths))
+        if progress:
+            progress(len(paths), len(paths))
 
-    def receive(self, paths):
+    def receive(self, paths, progress=None):
         self.calls.append(("receive", paths))
 
-    def delete(self, paths):
+    def delete(self, paths, progress=None):
         self.calls.append(("delete", paths))
 
-    def add(self, local_paths):
+    def add(self, local_paths, progress=None):
         self.calls.append(("add", local_paths))
 
     def connection_label(self):
@@ -244,6 +246,21 @@ def test_acoes_chamam_o_controller(app):
     win._confirm_delete = lambda paths: True           # confirma o alerta (sem diálogo modal)
     win._run("delete")
     assert ("delete", paths) in ctrl.calls
+
+
+def test_barra_de_progresso_no_rodape(app):
+    """A barra de progresso do rodapé reflete o avanço por item da operação."""
+    ctrl = FakeController(_all_status_states())
+    win = MainWindow(ctrl, async_run=False)
+
+    win._on_progress(3, 10)                              # N de M
+    assert win._progress.maximum() == 10 and win._progress.value() == 3
+
+    win.set_states(ctrl.status())
+    win.tree.selectAll()
+    n = win.tree.topLevelItemCount()
+    win._run("send")                                    # FakeController.send reporta n/n
+    assert win._progress.maximum() == n and win._progress.value() == n
 
 
 def test_apagar_pede_confirmacao_e_cancela(app):

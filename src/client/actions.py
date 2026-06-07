@@ -145,14 +145,21 @@ class VaultSession:
 
     # --- enviar (ações 1 e 3) ------------------------------------------------
 
-    def send_many(self, files: list[ScannedFile]) -> None:
-        """Envia vários arquivos num ciclo (load → upload → CAS), com retry em conflito."""
+    def send_many(self, files: list[ScannedFile], *, progress=None) -> None:
+        """Envia vários arquivos num ciclo (load → upload → CAS), com retry em conflito.
+
+        ``progress(feitos, total)`` (opcional) é chamado a cada arquivo enviado — usado pela
+        GUI para a barra de progresso. Em retry de CAS o contador reinicia (apply reaplica).
+        """
         staged: dict[str, tuple[ScannedFile, list[BlockRef]]] = {}
+        total = len(files)
 
         def apply(vault):
             staged.clear()                            # reaplicado do zero a cada tentativa
-            for sf in files:
+            for i, sf in enumerate(files, 1):
                 staged[sf.vault_path] = (sf, self._upload_and_record(vault, sf))
+                if progress:
+                    progress(i, total)
             return True
 
         vault = self._apply_with_retry(apply)
