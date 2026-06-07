@@ -10,7 +10,8 @@
 #   bash install-gui-client.sh
 #
 # Variáveis de ambiente (todas opcionais):
-#   UNUSER_SERVER       host:porta do servidor          [192.168.3.3:8080]
+#   UNUSER_SERVER       host:porta do servidor          [127.0.0.1:8080]
+#                       (defina o seu, ex.: UNUSER_SERVER=10.0.0.5:8080 ou um .onion)
 #   UNUSER_DEST         diretório de instalação          [$HOME/unuser]
 #   UNUSER_REPO         URL do repositório git           [https://github.com/eueocraudio/unuser.git]
 #   UNUSER_KEYFILE_SRC  origem do keyfile a COPIAR        (ex.: outra-maquina:~/.config/unuser/keyfile
@@ -23,7 +24,7 @@
 # gerar um novo muda a chave-mestra e o cofre não abrirá.
 set -euo pipefail
 
-SERVER="${UNUSER_SERVER:-192.168.3.3:8080}"
+SERVER="${UNUSER_SERVER:-127.0.0.1:8080}"
 DEST="${UNUSER_DEST:-$HOME/unuser}"
 REPO="${UNUSER_REPO:-https://github.com/eueocraudio/unuser.git}"
 HOST="${SERVER%%:*}"
