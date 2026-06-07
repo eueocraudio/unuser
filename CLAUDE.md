@@ -19,7 +19,10 @@ Documentação:
 **Estado:** Fases 1–6 do roadmap concluídas + refinos (GUI com threading, retry
 automático do CAS, chunking em streaming, salt cross-máquina, **block_id por arquivo**,
 GUI repaginada: tema escuro + Explorer de duas áreas + ícones + adicionar arquivo/pastas +
-persistência do estado da árvore). Cliente em **v1.0.1**. ~166 testes passando. Executáveis
+persistência do estado da árvore; **porta padrão 8080**, **mTLS auto-gerado no `postinst`**,
+**storage configurável** (`UNUSERD_STORAGE`), **keep-alive no transporte** (corrige timeout
+em arquivos grandes), **chunks de 512 KiB**, **licença MIT** + `install-gui-client.sh`).
+Projeto em **v1.1.0** (open source, MIT). ~168 testes passando. Executáveis
 `unuser` (cliente) e `unuserd` (servidor); `.deb` de ambos em `packaging/`; scripts de
 conveniência em `src/server/run.sh`, `src/client/run.sh`, `src/client/run-gui.sh`.
 

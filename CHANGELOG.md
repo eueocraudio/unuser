@@ -4,6 +4,46 @@ Todas as mudanças notáveis do **unuser**. Formato baseado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/); versionamento
 [SemVer](https://semver.org/lang/pt-BR/).
 
+## [1.1.0] — 2026-06-07
+
+Servidor mais fácil de operar, projeto aberto (MIT) e correção do timeout em arquivos
+grandes.
+
+### Adicionado
+- **Servidor — par mTLS gerado na instalação.** O `postinst` gera
+  `/etc/unuser/server.{crt,key}` (idempotente) e imprime o *fingerprint*; cria uma
+  allowlist vazia. O mTLS nasce **gerado-mas-desligado** (allowlist vazia +
+  `CERT_REQUIRED` recusaria todos os clientes); liga-se adicionando certs de cliente.
+- **Servidor — diretório de persistência configurável** via `UNUSERD_STORAGE` em
+  `/etc/default/unuserd` (o `postinst` cria/dá posse; fora de `/var/lib/unuser` exige
+  drop-in `ReadWritePaths`).
+- **Licença MIT** (`LICENSE`) — o projeto agora é open source.
+- **Instalador do cliente GUI** (`install-gui-client.sh`): tudo-em-um (clona o repo
+  público, monta o venv com fallback `get-pip.py`, instala a GUI, configura `~/.env`/
+  `dirs.json` e abre a interface), com tratamento cuidadoso do keyfile.
+- **README — seção "Requisitos"** com pacotes de sistema, dependências Python por grupo e
+  os comandos de instalação.
+
+### Alterado
+- **Porta padrão 8443 → 8080** (cliente, servidor, scripts, documentação e testes).
+- **Blocos maiores: `4/16/64 KiB` → `32/128/512 KiB`.** Quem define o tamanho típico é o
+  `AVG_SIZE` (máscara do Gear hash). Resultado: ~8× menos blocos/requests por arquivo e
+  manifesto menor. *Muda as fronteiras de chunking → a dedup só casa entre clientes nesta
+  configuração (todos precisam desta versão).*
+
+### Corrigido
+- **Crítico — timeout ao enviar arquivos grandes.** O cliente abria **uma conexão TCP por
+  bloco**; um arquivo grande são milhares de blocos, esgotando portas efêmeras
+  (`TIME_WAIT`) até o `connect()` travar e estourar o timeout. Agora o `VaultClient` reusa
+  **uma conexão persistente** (keep-alive, com `TCP_NODELAY` para evitar o stall de
+  Nagle+delayed-ACK), reconectando uma vez se a conexão cair. Reprodução real contra o
+  servidor: **timeout → 4,8 s**; 80 MB passam de 4218 conexões para **1**.
+- **`receive` numa máquina nova** não estoura mais `KeyError: raiz desconhecida para o
+  prefixo …`. Quando o prefixo não corresponde a nenhuma raiz configurada, o arquivo é
+  baixado em `~/<prefixo>/` (criando a pasta).
+
+[1.1.0]: https://github.com/eueocraudio/unuser/releases/tag/v1.1.0
+
 ## [1.0.1] — 2026-06-04
 
 Primeira versão marcada do **cliente** (`unuser`). Inclui um corte de bug crítico de
