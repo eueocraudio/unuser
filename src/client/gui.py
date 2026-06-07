@@ -25,6 +25,43 @@ from PySide6.QtWidgets import (
 from .sync import FileState, FileStatus
 
 _ROLE = Qt.ItemDataRole.UserRole
+_SORT_ROLE = Qt.ItemDataRole.UserRole + 1    # chave de ordenação por coluna (num/cronológica)
+
+
+def _human_size(n: int | None) -> str:
+    """Tamanho legível (1.2 MiB). Vazio quando desconhecido."""
+    if n is None:
+        return ""
+    f = float(n)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if f < 1024 or unit == "TiB":
+            return f"{f:.0f} {unit}" if unit == "B" else f"{f:.1f} {unit}"
+        f /= 1024
+    return ""
+
+
+def _fmt_date(epoch: float | None) -> str:
+    """Data de modificação local (YYYY-MM-DD HH:MM). Vazio quando desconhecida."""
+    if not epoch:
+        return ""
+    import datetime
+    return datetime.datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M")
+
+
+class _FileItem(QTreeWidgetItem):
+    """Item da lista de arquivos: ordena pela CHAVE em ``_SORT_ROLE`` (não pelo texto),
+    para tamanho ordenar numericamente e data cronologicamente."""
+
+    def __lt__(self, other) -> bool:
+        tw = self.treeWidget()
+        col = tw.sortColumn() if tw is not None else 0
+        a, b = self.data(col, _SORT_ROLE), other.data(col, _SORT_ROLE)
+        if a is None or b is None:
+            return super().__lt__(other)
+        try:
+            return a < b
+        except TypeError:
+            return str(a) < str(b)
 
 # As 6 cores de status (§7.1) — tons vivos, legíveis sobre o fundo escuro.
 STATUS_COLORS: dict[FileStatus, str] = {
@@ -216,10 +253,12 @@ class MainWindow(QMainWindow):
 
         # direita: LISTA de arquivos da pasta selecionada
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(2)
-        self.tree.setHeaderLabels(["Arquivo", "Status"])
+        self.tree.setColumnCount(4)
+        self.tree.setHeaderLabels(["Arquivo", "Status", "Tamanho", "Data"])
         self.tree.setRootIsDecorated(False)
         self.tree.setAlternatingRowColors(True)
+        self.tree.setSortingEnabled(True)                 # clicar no cabeçalho ordena
+        self.tree.sortByColumn(0, Qt.SortOrder.AscendingOrder)   # padrão: por nome
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._context_menu)
@@ -351,18 +390,27 @@ class MainWindow(QMainWindow):
     def _show_folder(self, folder: str) -> None:
         """Popula a lista da direita SÓ com os arquivos **diretamente** em ``folder`` (não
         recursivo — subpastas ficam na árvore à esquerda). Cada arquivo na sua cor."""
+        self.tree.setSortingEnabled(False)               # popular e ordenar 1x no fim (rápido)
         self.tree.clear()
         for st in self._states:
             head, sep, name = st.vault_path.rpartition("/")
             parent = head if sep else ""                 # pasta-pai do arquivo
             if parent != folder:
                 continue
-            item = QTreeWidgetItem([name, st.status.value])
+            item = _FileItem([name, st.status.value, _human_size(st.size), _fmt_date(st.mtime)])
             item.setIcon(0, self._icon_file)
             item.setForeground(1, QBrush(QColor(STATUS_COLORS.get(st.status, "#d6d6d6"))))
+            item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             item.setData(0, _ROLE, st)                   # FileState completo (path absoluto)
+            # chaves de ordenação: nome (texto), status (texto), tamanho (int), data (epoch)
+            item.setData(0, _SORT_ROLE, name.lower())
+            item.setData(1, _SORT_ROLE, st.status.value)
+            item.setData(2, _SORT_ROLE, st.size if st.size is not None else -1)
+            item.setData(3, _SORT_ROLE, st.mtime if st.mtime is not None else -1.0)
             self.tree.addTopLevelItem(item)
-        self.tree.resizeColumnToContents(0)
+        self.tree.setSortingEnabled(True)                 # re-aplica a ordenação corrente
+        for col in (0, 2, 3):
+            self.tree.resizeColumnToContents(col)
         self._update_details()
 
     def selected_paths(self) -> list[str]:

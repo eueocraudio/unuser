@@ -193,6 +193,41 @@ def test_arvore_de_pastas_filtra_a_lista(app):
     assert item.data(0, Qt.ItemDataRole.UserRole).vault_path == "Fotos/c.png"
 
 
+def test_lista_mostra_tamanho_data_e_ordena(app):
+    """A lista tem colunas Tamanho/Data e ordena por valor (numérico/cronológico), não texto."""
+    states = [
+        FileState("Documents/grande.bin", FileStatus.IN_SYNC, "h", "h", "h",
+                  size=3 * 1024 * 1024, mtime=1_700_000_000.0),
+        FileState("Documents/pequeno.txt", FileStatus.LOCAL_MODIFIED, "h2", "h", "h",
+                  size=512, mtime=1_600_000_000.0),
+        FileState("Documents/medio.dat", FileStatus.IN_SYNC, "h", "h", "h",
+                  size=20 * 1024, mtime=1_650_000_000.0),
+    ]
+    win = MainWindow(FakeController(states), async_run=False)
+    win.set_states(states)
+    _select_folder(win, "Documents")
+
+    assert win.tree.columnCount() == 4
+    assert [win.tree.headerItem().text(c) for c in range(4)] == \
+        ["Arquivo", "Status", "Tamanho", "Data"]
+
+    by_name = {win.tree.topLevelItem(i).text(0): win.tree.topLevelItem(i)
+               for i in range(win.tree.topLevelItemCount())}
+    assert by_name["pequeno.txt"].text(2) == "512 B"
+    assert by_name["grande.bin"].text(2) == "3.0 MiB"
+    assert by_name["pequeno.txt"].text(3)            # data formatada não-vazia
+
+    def ordem():
+        return [win.tree.topLevelItem(i).text(0) for i in range(win.tree.topLevelItemCount())]
+
+    win.tree.sortByColumn(2, Qt.SortOrder.AscendingOrder)   # TAMANHO (numérico, não "20 KiB"<"512 B")
+    assert ordem() == ["pequeno.txt", "medio.dat", "grande.bin"]
+    win.tree.sortByColumn(3, Qt.SortOrder.AscendingOrder)   # DATA (cronológico)
+    assert ordem() == ["pequeno.txt", "medio.dat", "grande.bin"]
+    win.tree.sortByColumn(0, Qt.SortOrder.AscendingOrder)   # NOME
+    assert ordem() == ["grande.bin", "medio.dat", "pequeno.txt"]
+
+
 def test_acoes_chamam_o_controller(app):
     ctrl = FakeController(_all_status_states())
     win = MainWindow(ctrl, async_run=False)
