@@ -45,7 +45,7 @@ class FakeController:
         self.calls.append(("add", local_paths))
 
     def connection_label(self):
-        return "Direto 127.0.0.1:8443"
+        return "Direto 127.0.0.1:8080"
 
     # --- gerência de pastas sincronizadas (para o SyncFoldersDialog) ---------
     def sync_folders(self):

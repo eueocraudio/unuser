@@ -16,28 +16,28 @@ def test_conn_from_env_parseia_e_ignora_comentarios(tmp_path):
         "UNUSER_VAULT_ID=v:abc\n"
         "UNUSER_CONN_MODE=direct            # direct | tor\n"
         "UNUSER_DIRECT_HOST=192.168.0.10\n"
-        "UNUSER_DIRECT_PORT=8443\n"
+        "UNUSER_DIRECT_PORT=8080\n"
         "\n"
     )
     c = ConnConfig.from_env(tmp_path / ".env")
     assert c.vault_id == "v:abc"
     assert c.mode == "direct"                  # comentário inline removido
     assert c.direct_host == "192.168.0.10"
-    assert c.direct_port == 8443               # convertido para int
+    assert c.direct_port == 8080               # convertido para int
 
 
 def test_conn_defaults_quando_arquivo_falta(tmp_path):
     c = ConnConfig.from_env(tmp_path / "nao-existe.env")
-    assert c.mode == "direct" and c.direct_port == 8443
+    assert c.mode == "direct" and c.direct_port == 8080
 
 
 def test_make_client_direct_e_tor():
     direto = ConnConfig(mode="direct", direct_host="10.0.0.1", direct_port=9000).make_client()
     assert isinstance(direto, VaultClient) and direto.socks_proxy is None
 
-    tor = ConnConfig(mode="tor", tor_onion="abc.onion", tor_port=8443,
+    tor = ConnConfig(mode="tor", tor_onion="abc.onion", tor_port=8080,
                      tor_socks="127.0.0.1:9050").make_client()
-    assert tor.host == "abc.onion" and tor.port == 8443
+    assert tor.host == "abc.onion" and tor.port == 8080
     assert tor.socks_proxy == ("127.0.0.1", 9050)   # tunelado pelo SOCKS5 do Tor
 
 

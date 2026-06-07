@@ -33,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--storage", default="/var/lib/unuser/vault",
                    help="diretório do cofre (blobs + manifesto)")
     p.add_argument("--host", default="127.0.0.1", help="endereço de escuta (default: localhost)")
-    p.add_argument("--port", type=int, default=8443, help="porta de escuta")
+    p.add_argument("--port", type=int, default=8080, help="porta de escuta")
     p.add_argument("--tls-cert", help="cert do servidor (PEM) — liga mTLS se os 3 forem dados")
     p.add_argument("--tls-key", help="chave do servidor (PEM)")
     p.add_argument("--tls-allow", help="allowlist PEM dos certs de cliente confiáveis")

@@ -154,10 +154,10 @@ chmod 600 ~/.config/unuser/keyfile</pre>
 <pre>UNUSER_VAULT_ID=v:default
 UNUSER_CONN_MODE=direct          # direct (LAN/localhost) ou tor
 UNUSER_DIRECT_HOST=127.1.0.1
-UNUSER_DIRECT_PORT=8443
+UNUSER_DIRECT_PORT=8080
 # modo tor:
 UNUSER_TOR_ONION=
-UNUSER_TOR_PORT=8443
+UNUSER_TOR_PORT=8080
 UNUSER_TOR_SOCKS=127.1.0.1:9050</pre>
 
 <h3>5.3 O que entra no cofre — <code>~/.config/unuser/dirs.json</code></h3>
@@ -185,7 +185,7 @@ arquivo): <code>.env</code>, <code>*.key</code>, <code>*.pem</code>, <code>.ssh/
 <h2>6. Primeiro uso (CLI)</h2>
 <ol>
   <li>Suba o servidor (num terminal ou via systemd / <code>src/server/run.sh</code>):
-    <pre>src/server/run.sh                 # cofre em ~/.local/share/unuser-vault, 127.1.0.1:8443</pre></li>
+    <pre>src/server/run.sh                 # cofre em ~/.local/share/unuser-vault, 127.1.0.1:8080</pre></li>
   <li>No cliente, exporte os fatores e use os subcomandos:
     <pre>export UNUSER_KEYFILE=~/.config/unuser/keyfile
 export UNUSER_PASSPHRASE='sua-senha'

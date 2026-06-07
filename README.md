@@ -88,7 +88,7 @@ Rodar os testes:
 **Servidor** (nó central, sempre ligado — escuta só em localhost; o Tor publica o serviço):
 
 ```bash
-.venv/bin/unuserd --storage /var/lib/unuser/vault --host 127.1.0.1 --port 8443 \
+.venv/bin/unuserd --storage /var/lib/unuser/vault --host 127.1.0.1 --port 8080 \
   [--tls-cert server.crt --tls-key server.key --tls-allow allow.pem]   # mTLS opcional
 ```
 

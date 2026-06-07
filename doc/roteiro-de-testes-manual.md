@@ -180,9 +180,9 @@ PY
 ## Parte E — Acesso remoto por Tor (opcional)
 
 Seguir `doc/operacao-tor.md`: publicar o Onion Service apontando para o
-`127.0.0.1:8443` do servidor e, do cliente, conectar ao `<...>.onion:8443`.
+`127.0.0.1:8080` do servidor e, do cliente, conectar ao `<...>.onion:8080`.
 
-- [ ] Servidor TLS no ar em `127.0.0.1:8443` (Parte B com `port=8443`).
+- [ ] Servidor TLS no ar em `127.0.0.1:8080` (Parte B com `port=8080`).
 - [ ] `/var/lib/tor/unuser/hostname` traz o endereço `.onion`.
 - [ ] (Fase 5) Cliente conecta pelo SOCKS5 do Tor e completa o mTLS por dentro do túnel.
 

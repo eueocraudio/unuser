@@ -302,6 +302,13 @@ Conveniência para rodar sem decorar flags (acham o binário do `.venv` ou do PA
 - `src/client/run-gui.sh` — instala o extra `gui` (PySide6) e, em Debian 13/Qt 6.5+, baixa
   `libxcb-cursor0` **sem root** num cache local (`~/.cache/unuser/lib`) e lança a GUI.
 
+## Fluxo de contribuição
+
+Toda mudança entra na `main` por **branch → PR → squash-merge** (ver histórico: cada
+commit da `main` é um PR `(#N)`). Não commite direto na `main`. Releases saem com `gh`
+publicando os assets (`.deb` de `dist/`, PDFs de `doc/`, `SHA256SUMS.txt`); o `CHANGELOG.md`
+acompanha cada versão. Bump de versão: `pyproject.toml` (`version`) + `CHANGELOG.md`.
+
 ## Roadmap
 
 Fases 1–6 ✓ (cripto · chunker+índice · manifesto · servidor cofre-cego+mTLS · motor de
