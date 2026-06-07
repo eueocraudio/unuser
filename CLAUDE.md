@@ -109,8 +109,10 @@ Content-defined chunking via **Gear hash determinístico** (`_GEAR` derivado por
 rótulo fixo — **não** aleatório, senão as fronteiras diferiam entre máquinas e a dedup
 quebraria). `chunk_bytes` recorta; `split(data, block_id_key)` já devolve `Block`s com
 `block_id`. Editar um trecho só muda os blocos próximos (ver
-`test_edit_local_preserva_a_maioria_dos_blocos`). Parâmetros padrão: min 4 KiB / avg 16 KiB
-/ max 64 KiB.
+`test_edit_local_preserva_a_maioria_dos_blocos`). Parâmetros padrão: min 32 KiB / avg
+128 KiB / max 512 KiB (o `AVG_SIZE` define o tamanho típico via máscara do Gear; blocos
+maiores = menos blocos/requests por arquivo). Mudar os defaults muda as fronteiras → a
+dedup só casa entre clientes na MESMA config.
 
 **Streaming:** `chunk_stream(reader)` / `split_stream(reader, key)` / `split_file(path,
 key)` chunkam sem carregar o arquivo inteiro (janela ≤ ~max_size). Produzem **exatamente**
