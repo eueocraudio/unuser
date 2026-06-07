@@ -18,10 +18,13 @@ from typing import Iterator
 
 from .crypto import block_id as _block_id
 
-# Parâmetros padrão dos blocos (bytes).
-MIN_SIZE = 4 * 1024
-AVG_SIZE = 16 * 1024
-MAX_SIZE = 64 * 1024
+# Parâmetros padrão dos blocos (bytes). Quem define o tamanho TÍPICO é o AVG_SIZE (ele
+# controla a máscara do Gear hash, ~1 fronteira a cada AVG bytes); MAX_SIZE é só o teto.
+# Blocos maiores = menos blocos/requests por arquivo (essencial p/ arquivos grandes).
+# Mudar estes valores muda as fronteiras → a dedup só casa entre clientes na MESMA config.
+MIN_SIZE = 32 * 1024
+AVG_SIZE = 128 * 1024
+MAX_SIZE = 512 * 1024
 
 _MASK64 = (1 << 64) - 1
 

@@ -126,3 +126,22 @@ def test_fingerprint_estavel(pki):
     fp2 = tls.cert_fingerprint(pki["ok_crt"])
     assert fp1 == fp2 and len(fp1) == 64
     assert fp1 != tls.cert_fingerprint(pki["bad_crt"])
+
+
+def test_reusa_uma_conexao_para_muitos_requests(store):
+    """Keep-alive: N requests reusam UMA conexão (não abre/fecha por bloco).
+
+    Regressão do timeout em arquivos grandes: milhares de conexões TCP novas esgotavam
+    portas efêmeras e travavam o connect() até o timeout.
+    """
+    with running(store) as port:
+        c = VaultClient("127.0.0.1", port)
+        novas = []
+        orig = c._new_conn
+        c._new_conn = lambda: (novas.append(1), orig())[1]
+        for i in range(25):
+            bid = "b:" + f"{i:064x}"
+            c.put_blob(bid, b"x" * 16)
+            assert c.has_blob(bid)                    # ~50 requests no total
+        assert len(novas) == 1                        # uma única conexão reusada
+        c.close()
