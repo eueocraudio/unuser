@@ -75,7 +75,7 @@ STATUS_COLORS: dict[FileStatus, str] = {
 
 # Tema escuro: fundos grafite, texto claro, acentos em azul.
 DARK_QSS = """
-QMainWindow, QWidget { background: #232629; color: #d6d6d6; font-family: "Tahoma", "DejaVu Sans"; font-size: 11px; }
+QMainWindow, QWidget { background: #232629; color: #d6d6d6; font-family: "Tahoma", "DejaVu Sans"; font-size: 15px; }
 QToolBar { background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #3a3d42, stop:1 #26282c);
            border-bottom: 1px solid #15171a; spacing: 4px; padding: 3px; }
 QToolBar QToolButton, QToolBar QLabel { color: #eaeaea; padding: 3px 8px; }
