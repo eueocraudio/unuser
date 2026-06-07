@@ -32,9 +32,9 @@ class ConnConfig:
     vault_id: str = "v:default"
     mode: str = "direct"               # direct | tor
     direct_host: str = "127.0.0.1"
-    direct_port: int = 8443
+    direct_port: int = 8080
     tor_onion: str = ""
-    tor_port: int = 8443
+    tor_port: int = 8080
     tor_socks: str = "127.0.0.1:9050"
 
     @classmethod
@@ -44,9 +44,9 @@ class ConnConfig:
             vault_id=get("UNUSER_VAULT_ID", "v:default"),
             mode=get("UNUSER_CONN_MODE", "direct"),
             direct_host=get("UNUSER_DIRECT_HOST", "127.0.0.1"),
-            direct_port=int(get("UNUSER_DIRECT_PORT", "8443")),
+            direct_port=int(get("UNUSER_DIRECT_PORT", "8080")),
             tor_onion=get("UNUSER_TOR_ONION", ""),
-            tor_port=int(get("UNUSER_TOR_PORT", "8443")),
+            tor_port=int(get("UNUSER_TOR_PORT", "8080")),
             tor_socks=get("UNUSER_TOR_SOCKS", "127.0.0.1:9050"),
         )
 

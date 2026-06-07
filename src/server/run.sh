@@ -4,7 +4,7 @@
 # Override por variáveis de ambiente; argumentos extras vão direto ao unuserd:
 #   UNUSERD_STORAGE   diretório do cofre (blobs + manifesto)  [~/.local/share/unuser-vault]
 #   UNUSERD_HOST      endereço de escuta                      [127.0.0.1]
-#   UNUSERD_PORT      porta                                   [8443]
+#   UNUSERD_PORT      porta                                   [8080]
 #   UNUSERD_TLS_CERT / UNUSERD_TLS_KEY / UNUSERD_TLS_ALLOW    liga mTLS se os 3 existirem
 #
 # Exemplos:
@@ -18,7 +18,7 @@ root="$(cd "$here/../.." && pwd)"
 
 storage="${UNUSERD_STORAGE:-$HOME/.local/share/unuser-vault}"
 host="${UNUSERD_HOST:-127.0.0.1}"
-port="${UNUSERD_PORT:-8443}"
+port="${UNUSERD_PORT:-8080}"
 
 # unuserd do venv do projeto, se houver; senão o do PATH (ex.: instalado via .deb).
 if [ -x "$root/.venv/bin/unuserd" ]; then

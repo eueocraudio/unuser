@@ -8,8 +8,10 @@ Wants=network-online.target
 Type=simple
 User=unuser
 Group=unuser
+# Default do storage; o EnvironmentFile (abaixo) sobrescreve se UNUSERD_STORAGE estiver setado.
+Environment=UNUSERD_STORAGE=/var/lib/unuser/vault
 EnvironmentFile=-/etc/default/unuserd
-ExecStart=/usr/bin/unuserd $UNUSERD_ARGS
+ExecStart=/usr/bin/unuserd --storage ${UNUSERD_STORAGE} $UNUSERD_ARGS
 Restart=on-failure
 RestartSec=2
 

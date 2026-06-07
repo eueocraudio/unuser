@@ -8,7 +8,7 @@ from server import cli
 
 def test_parser_defaults():
     args = cli.build_parser().parse_args([])
-    assert args.host == "127.0.0.1" and args.port == 8443
+    assert args.host == "127.0.0.1" and args.port == 8080
     assert args.storage.endswith("/vault")
     assert args.tls_cert is None
 

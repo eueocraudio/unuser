@@ -11,13 +11,26 @@ sh packaging/build-deb.sh          # gera dist/unuserd_<versao>_all.deb (sem roo
 sudo apt install ./dist/unuserd_1.0.1_all.deb
 ```
 
-A instalação cria o usuário de sistema `unuser`, o diretório `/var/lib/unuser/vault` e
-**habilita** (não inicia) o serviço. Configure e suba:
+A instalação cria o usuário de sistema `unuser`, o diretório `/var/lib/unuser/vault`,
+**gera o par mTLS do servidor** (`/etc/unuser/server.{crt,key}` — idempotente, com o
+fingerprint impresso no `postinst`) + uma allowlist vazia (`/etc/unuser/allow.pem`), e
+**habilita** (não inicia) o serviço. O mTLS nasce *gerado-mas-desligado*: uma allowlist
+vazia com `CERT_REQUIRED` recusaria todos os clientes. Configure e suba:
 
 ```bash
-sudoedit /etc/default/unuserd      # storage/host/porta e, p/ mTLS, --tls-cert/key/allow
+# diretório de persistência: UNUSERD_STORAGE em /etc/default/unuserd (default
+# /var/lib/unuser/vault). Fora de /var/lib/unuser exige drop-in ReadWritePaths
+# (a unit usa ProtectSystem=strict): systemctl edit unuserd
+# (opcional) ligar mTLS: registre os certs de cliente confiáveis e descomente as flags
+cat cliente.crt >> /etc/unuser/allow.pem   # um por dispositivo
+sudoedit /etc/default/unuserd              # UNUSERD_STORAGE/host/porta e, p/ mTLS, --tls-cert/key/allow
 sudo systemctl start unuserd
 ```
+
+> O `postinst` gera os certs com o próprio `common.tls` empacotado (precisa de
+> `python3-cryptography`, já em `Depends`). Se faltar, ele só avisa e segue sem mTLS
+> (localhost + Tor). No `purge`, `/etc/unuser` é removido (a identidade é recriada num
+> reinstall).
 
 O `unuserd` escuta **só em localhost** — quem publica o serviço é o Onion Service do Tor
 (ver [`../doc/operacao-tor.md`](../doc/operacao-tor.md)). A unit systemd
