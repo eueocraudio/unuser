@@ -9,6 +9,14 @@
 #                                 ReadWritePaths=/seu/novo/caminho
 UNUSERD_STORAGE=/var/lib/unuser/vault
 
+# Diretório dos BACKUPS (export/import disparados pelo cliente). Aponte para a MÍDIA
+# SECUNDÁRIA onde os .tar do cofre devem ficar. Se vazio, usa <storage>/backups.
+# ATENÇÃO: como o storage, um caminho FORA de /var/lib/unuser exige liberar a escrita:
+#   systemctl edit unuserd   →   [Service]
+#                                 ReadWritePaths=/mnt/midia-secundaria/unuser-backups
+# Monte a mídia antes do serviço subir (RequiresMountsFor=… no mesmo drop-in).
+#UNUSERD_BACKUPS=/mnt/midia-secundaria/unuser-backups
+
 # Escuta SÓ em localhost — o Onion Service do Tor publica o serviço (ver operacao-tor.md).
 #
 # mTLS (opcional): o par do servidor JÁ é gerado na instalação em

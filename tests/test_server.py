@@ -89,6 +89,42 @@ def test_content_length_invalido_responde_400_sem_travar(store):
         assert b"400" in status_line
 
 
+# --- uso de disco e backup (server-side) ------------------------------------
+
+def test_usage_endpoint(store):
+    with running(store) as port:
+        c = VaultClient("127.0.0.1", port)
+        c.put_blob(BID, b"x" * 64)
+        c.put_manifest(0, 1, b"m")
+        u = c.usage()
+        assert u["disk_total"] > 0 and u["blob_count"] == 1
+        assert u["vault_bytes"] >= 64
+
+
+def test_export_list_restore_via_http(store):
+    with running(store) as port:
+        c = VaultClient("127.0.0.1", port)
+        c.put_blob(BID, b"cifrado")
+        c.put_manifest(0, 1, b"manifesto-1")
+
+        info = c.export_backup()
+        assert info["name"].startswith("unuser-backup-")
+        assert [b["name"] for b in c.list_backups()] == [info["name"]]
+
+        c.put_manifest(1, 2, b"manifesto-2")             # muda o estado
+        assert c.get_manifest() == (2, b"manifesto-2")
+
+        assert c.restore_backup(info["name"]) == 1       # volta ao backup
+        assert c.get_manifest() == (1, b"manifesto-1")
+
+
+def test_restore_inexistente_via_http(store):
+    with running(store) as port:
+        c = VaultClient("127.0.0.1", port)
+        with pytest.raises(TransportError):             # 404 do servidor
+            c.restore_backup("unuser-backup-20200101-000000.tar")
+
+
 # --- mTLS --------------------------------------------------------------------
 
 @pytest.fixture

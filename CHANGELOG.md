@@ -4,6 +4,22 @@ Todas as mudanças notáveis do **unuser**. Formato baseado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/); versionamento
 [SemVer](https://semver.org/lang/pt-BR/).
 
+## [1.3.0] — 2026-06-07
+
+### Adicionado
+- **Servidor — uso de disco** (`GET /usage`): reporta o uso do disco **físico** onde fica o
+  storage (`shutil.disk_usage`) + o tamanho do cofre. É metadado de infra (não vaza
+  conteúdo/nomes/chaves). O cliente mostra uma **barra de uso** no rodapé da GUI.
+- **Servidor — backup (export/import) server-side**, disparado por **botões no cliente**: o
+  servidor empacota `blobs/`+`manifest/` num `.tar` (`POST /backups`), lista os backups
+  (`GET /backups`) e restaura (`POST /restore`, **destrutivo**, com confirmação na GUI). O
+  diretório dos backups é configurável via **`UNUSERD_BACKUPS`** (ex.: mídia secundária);
+  default `<storage>/backups`. Restauração troca os diretórios via rename (sob lock) e valida
+  o `.tar` contra path-traversal.
+- **GUI — tela "Servidor…"** (`ServerDialog`): uso de disco + exportar/restaurar backups.
+
+[1.3.0]: https://github.com/eueocraudio/unuser/releases/tag/v1.3.0
+
 ## [1.2.0] — 2026-06-07
 
 ### Adicionado

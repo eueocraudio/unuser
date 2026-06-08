@@ -10,6 +10,7 @@ servidor (§4.6).
 from __future__ import annotations
 
 import http.client
+import json
 import socket
 import ssl
 import threading
@@ -208,3 +209,35 @@ class VaultClient:
         status, _, _ = self._request("PUT", f"/blob/{block_id}", body=data)
         if status not in (200, 201):
             raise TransportError(f"PUT /blob -> {status}")
+
+    # --- uso de disco e backup (server-side, disparados pelo cliente) --------
+
+    def usage(self) -> dict:
+        """Uso do disco físico do servidor + tamanho do cofre (para a barra de uso)."""
+        status, _, data = self._request("GET", "/usage")
+        if status != 200:
+            raise TransportError(f"GET /usage -> {status}")
+        return json.loads(data)
+
+    def list_backups(self) -> list[dict]:
+        """Backups disponíveis no servidor (mais recentes primeiro)."""
+        status, _, data = self._request("GET", "/backups")
+        if status != 200:
+            raise TransportError(f"GET /backups -> {status}")
+        return json.loads(data).get("backups", [])
+
+    def export_backup(self) -> dict:
+        """Pede ao servidor para criar um backup; devolve {name, size, created}."""
+        status, _, data = self._request("POST", "/backups")
+        if status not in (200, 201):
+            raise TransportError(f"POST /backups -> {status}")
+        return json.loads(data)
+
+    def restore_backup(self, name: str) -> int:
+        """Pede ao servidor para restaurar ``name`` (DESTRUTIVO); devolve a nova versão."""
+        body = json.dumps({"name": name}).encode("utf-8")
+        status, _, data = self._request(
+            "POST", "/restore", body=body, headers={"Content-Type": "application/json"})
+        if status != 200:
+            raise TransportError(f"POST /restore -> {status}")
+        return json.loads(data).get("version", 0)

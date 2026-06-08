@@ -206,6 +206,19 @@ def cmd_gui(args) -> int:
                 return f"Tor {conn.tor_onion or '(sem onion)'}"
             return f"Direto {conn.direct_host}:{conn.direct_port}"
 
+        # --- uso de disco e backup do servidor (disparados pela GUI) ---------
+        def server_usage(self):
+            return session.client.usage()
+
+        def list_backups(self):
+            return session.client.list_backups()
+
+        def export_server(self):
+            return session.client.export_backup()
+
+        def import_server(self, name):
+            return session.client.restore_backup(name)
+
     return gui.run(_Controller())
 
 

@@ -22,7 +22,7 @@ GUI repaginada: tema escuro + Explorer de duas áreas + ícones + adicionar arqu
 persistência do estado da árvore; **porta padrão 8080**, **mTLS auto-gerado no `postinst`**,
 **storage configurável** (`UNUSERD_STORAGE`), **keep-alive no transporte** (corrige timeout
 em arquivos grandes), **chunks de 512 KiB**, **licença MIT** + `install-gui-client.sh`).
-Projeto em **v1.2.0** (open source, MIT). ~169 testes passando. Executáveis
+Projeto em **v1.3.0** (open source, MIT). ~183 testes passando. Executáveis
 `unuser` (cliente) e `unuserd` (servidor); `.deb` de ambos em `packaging/`; scripts de
 conveniência em `src/server/run.sh`, `src/client/run.sh`, `src/client/run-gui.sh`.
 
@@ -218,7 +218,8 @@ mutam (`actions`).
   máquina nova abre o cofre **sem cópia manual**; cofre novo gera o salt (cacheado no
   índice `meta`). O `_Controller` do `gui` expõe, além de status/send/receive/delete:
   `add` (usa `resolve_or_register`), `sync_folders`/`add_root`/`remove_root`/`remove_item`
-  (gerência de pastas) e `ui_state`/`save_ui_state` (estado da GUI em
+  (gerência de pastas), `server_usage`/`list_backups`/`export_server`/`import_server` (uso de
+  disco + backup, via `session.client`) e `ui_state`/`save_ui_state` (estado da GUI em
   **`~/.local/data/unuser/gui-state.json`** — `_DATA_DIR`, criado recursivamente).
   E2E single-machine em `tests/test_cli.py`; cross-máquina em
   `tests/test_actions.py::test_maquina_nova_abre_cofre_pelo_salt_publicado`.
@@ -228,18 +229,30 @@ mutam (`actions`).
 - `storage.py` — `BlindStorage` em disco: blobs (validados por regex `^b:[0-9a-f]{64}$`
   — anti path-traversal), manifesto com **CAS** (`put_manifest(expected, new, blob)` →
   `ConflictError` se a versão atual ≠ esperada; lock para concorrência). Nunca decifra nada.
+  Também: `disk_usage()` (uso do disco **físico** via `shutil.disk_usage` + tamanho do cofre
+  — metadado de infra, não vaza conteúdo) e **backup server-side** `export()`/`list_backups()`/
+  `restore(name)`: `export` empacota só `blobs/`+`manifest/` num `.tar` no `backups_dir`
+  (NUNCA inclui o próprio `backups_dir`); `restore` é **destrutivo** (troca os diretórios
+  via rename, sob lock; `_safe_extract` recusa membros que escapem o destino; nome validado
+  por `_BACKUP_RE`). `backups_dir` é configurável (default `<storage>/backups`) — para mídia
+  secundária via `UNUSERD_BACKUPS`.
 - `http_server.py` — API stdlib (`ThreadingHTTPServer`): `/healthz`, `GET/PUT /manifest`
-  (versão via headers `X-Unuser-*`), `HEAD/GET/PUT /blob/<id>`. `make_server(..., ssl_context=)`
-  habilita mTLS. `port=0` = porta efêmera (testes).
+  (versão via headers `X-Unuser-*`), `HEAD/GET/PUT /blob/<id>`, `GET /usage` (JSON do uso de
+  disco), `GET /backups` (lista) + `POST /backups` (cria backup) + `POST /restore` (restaura,
+  corpo JSON `{name}`). `make_server(..., ssl_context=)` habilita mTLS. `port=0` = porta
+  efêmera (testes).
 - `cli.py` — executável **`unuserd`** (entry point `[project.scripts]`): `build_server(args)`
-  monta `BlindStorage`+`make_server` (mTLS se `--tls-cert/key/allow`), `main` trata
-  SIGTERM (stop do systemd) e faz `serve_forever`. Importa `common.tls` só com mTLS.
+  monta `BlindStorage`+`make_server` (mTLS se `--tls-cert/key/allow`; `--backups`/
+  `UNUSERD_BACKUPS` define o diretório de backups), `main` trata SIGTERM (stop do systemd) e
+  faz `serve_forever`. Importa `common.tls` só com mTLS.
 - `src/common/tls.py` — geração de certs EC autoassinados, `cert_fingerprint`, e contextos
   mTLS. Allowlist = arquivo PEM concatenando os certs de cliente confiáveis
   (`write_allowlist`); o servidor faz `verify_mode=CERT_REQUIRED`.
 - `src/client/transport.py` — `VaultClient` (http.client) que fala a API; aceita
   `ssl_context` para mTLS e `socks_proxy=(host,port)` para tunelar pelo SOCKS5 do Tor
   (`socks5_connect`, CONNECT por ATYP=domínio p/ o Tor resolver o `.onion`). 409 → `ConflictError`.
+  Além da API de blobs/manifesto: `usage()`, `list_backups()`, `export_backup()` e
+  `restore_backup(name)` (uso de disco + backup server-side, disparados pelo cliente).
 
 **Tor** é operacional (ver `doc/operacao-tor.md`): o `unuserd` só escuta TLS em
 localhost; o daemon `tor` publica o Onion Service; o cliente conecta ao `.onion` pelo
@@ -265,9 +278,20 @@ da rede; layout:
   próprios; aplicados na árvore, na lista e no `SyncFoldersDialog`.
 
 Barra de ferramentas: Atualizar/Enviar/Receber/Apagar, **Adicionar arquivo** (seletor →
-`controller.add` via `resolve_or_register`, auto-registra a pasta) e **Pastas…**
-(`SyncFoldersDialog`: lista/adiciona/remove raízes e itens avulsos). Ações também no menu
-de contexto da lista.
+`controller.add` via `resolve_or_register`, auto-registra a pasta), **Pastas…**
+(`SyncFoldersDialog`: lista/adiciona/remove raízes e itens avulsos) e **Servidor…**
+(`ServerDialog`). Ações também no menu de contexto da lista. **Apagar** abre uma confirmação
+`QMessageBox` antes de agir (`_confirm_delete`, botão padrão "Não") — apagar grava tombstone
+no servidor + remove local. Fonte base do tema é **15px** (no `DARK_QSS`).
+
+- **Uso de disco do servidor (rodapé):** `_disk_label` + `_disk_bar` na status bar mostram
+  `usado de total` do disco **físico** do servidor. O "Atualizar" (e cada ação) busca status
+  **e** uso juntos: `_collect()` chama `controller.status()` + `server_usage()` (este
+  **best-effort** — falhar não quebra a ação) e `_apply_refresh()` aplica os dois.
+- **ServerDialog (Servidor…):** uso de disco + **exportar/importar** backups, **server-side**
+  e disparado por botões: "Exportar agora" (`controller.export_server`), lista de backups
+  (`list_backups`) e "Restaurar selecionado" (`import_server`, com confirmação **destrutiva**).
+  As chamadas são **síncronas** (cursor de espera) — ação administrativa pontual.
 
 - **Estado da árvore persistente:** expansão por nó + pasta selecionada são preservadas
   entre reconstruções **e entre sessões** — `_load_ui_state`/`_save_ui_state` via

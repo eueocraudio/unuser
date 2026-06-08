@@ -63,6 +63,26 @@ class FakeController:
     def remove_item(self, path):
         self.items = [i for i in getattr(self, "items", []) if i != path]
 
+    # --- servidor: uso de disco + export/import (para o ServerDialog) --------
+    def server_usage(self):
+        return {"disk_total": 8_000_000_000, "disk_used": 4_000_000_000,
+                "disk_free": 4_000_000_000, "vault_bytes": 123_456, "blob_count": 7}
+
+    def list_backups(self):
+        return list(getattr(self, "backups", []))
+
+    def export_server(self):
+        self.calls.append(("export", []))
+        self.backups = getattr(self, "backups", [])
+        info = {"name": f"unuser-backup-2026010{len(self.backups)+1}-000000.tar",
+                "size": 1024, "created": 1_700_000_000}
+        self.backups.insert(0, info)
+        return info
+
+    def import_server(self, name):
+        self.calls.append(("import", [name]))
+        return 1
+
 
 def _all_status_states():
     return [FileState(f"Doc/{s.name.lower()}.txt", s, "h", "h", "h") for s in FileStatus]
@@ -331,6 +351,74 @@ def test_atualizar_busca_do_controller(app):
     assert win.tree.topLevelItemCount() == 0
     win._run("atualizar")                               # deve repopular a partir do status()
     assert win.tree.topLevelItemCount() == len(FileStatus)
+
+
+def test_barra_de_uso_de_disco_do_servidor(app):
+    """Atualizar busca o uso de disco do servidor e preenche a barra do rodapé."""
+    ctrl = FakeController(_all_status_states())
+    win = MainWindow(ctrl, async_run=False)
+    win._run("atualizar")                                # _collect() chama server_usage()
+    assert win._disk_bar.isHidden() is False            # janela não é .show()n: usa isHidden
+    assert win._disk_bar.value() == 50                  # 4 GB de 8 GB
+    assert "de" in win._disk_label.text()
+
+    win.set_server_usage(None)                          # sem dado → oculta
+    assert win._disk_bar.isHidden() is True
+
+
+def test_uso_de_disco_e_best_effort(app):
+    """Se server_usage() falha, a ação não quebra (uso é informativo)."""
+    ctrl = FakeController(_all_status_states())
+
+    def boom():
+        raise RuntimeError("servidor fora do ar")
+    ctrl.server_usage = boom
+
+    win = MainWindow(ctrl, async_run=False)
+    win._run("atualizar")
+    assert win.tree.topLevelItemCount() == len(FileStatus)   # status seguiu normal
+    assert win._disk_bar.isHidden() is True                  # sem barra de uso
+
+
+def test_server_dialog_exporta_e_restaura(app, monkeypatch):
+    """ServerDialog mostra o uso, exporta um backup e restaura o selecionado (com confirmação)."""
+    import client.gui as gui_mod
+    from client.gui import ServerDialog
+
+    # neutraliza os diálogos modais (information/question) p/ não travar sem display
+    monkeypatch.setattr(gui_mod.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(gui_mod.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: gui_mod.QMessageBox.StandardButton.Yes))
+
+    ctrl = FakeController(_all_status_states())
+    dlg = ServerDialog(ctrl)
+    assert dlg.disk_bar.value() == 50                   # uso preenchido na abertura
+    assert dlg.listw.count() == 0                       # ainda sem backups
+
+    dlg._export()                                       # cria um backup
+    assert any(c[0] == "export" for c in ctrl.calls)
+    assert dlg.listw.count() == 1                       # lista recarregada
+
+    dlg.listw.setCurrentRow(0)
+    name = dlg.listw.currentItem().data(Qt.ItemDataRole.UserRole)
+    dlg._restore()                                      # confirma (question→Yes) e restaura
+    assert ("import", [name]) in ctrl.calls
+
+
+def test_server_dialog_restaurar_recusado_nao_importa(app, monkeypatch):
+    import client.gui as gui_mod
+    from client.gui import ServerDialog
+
+    monkeypatch.setattr(gui_mod.QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(gui_mod.QMessageBox, "question",
+                        staticmethod(lambda *a, **k: gui_mod.QMessageBox.StandardButton.No))
+
+    ctrl = FakeController(_all_status_states())
+    dlg = ServerDialog(ctrl)
+    dlg._export()
+    dlg.listw.setCurrentRow(0)
+    dlg._restore()                                      # usuário recusa → nada importado
+    assert not any(c[0] == "import" for c in ctrl.calls)
 
 
 class SlowController(FakeController):

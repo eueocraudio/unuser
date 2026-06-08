@@ -10,12 +10,17 @@ Rotas:
 * ``HEAD /blob/<block_id>``    → 200 se existe, 404 se não
 * ``GET  /blob/<block_id>``    → corpo = bytes cifrados do bloco
 * ``PUT  /blob/<block_id>``    → corpo = bytes cifrados; 201
+* ``GET  /usage``              → JSON do uso de disco (físico) e tamanho do cofre
+* ``GET  /backups``            → JSON {backups: [...]} disponíveis no servidor
+* ``POST /backups``            → cria um backup (server-side); 201 + JSON {name, ...}
+* ``POST /restore``            → corpo JSON {name}; restaura (DESTRUTIVO) + JSON {version}
 
 O servidor nunca decifra nada; só move bytes opacos.
 """
 
 from __future__ import annotations
 
+import json
 import ssl
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote
@@ -71,6 +76,10 @@ class _Handler(BaseHTTPRequestHandler):
     def _block_id(self) -> str:
         return unquote(self.path[len(_BLOB_PREFIX):])
 
+    def _json(self, code: int, obj) -> None:
+        self._send(code, json.dumps(obj).encode("utf-8"),
+                   {"Content-Type": "application/json"})
+
     def log_message(self, *args) -> None:  # silencia o log padrão em stderr
         pass
 
@@ -83,6 +92,10 @@ class _Handler(BaseHTTPRequestHandler):
             res = self.storage.get_manifest()
             version, blob = res if res else (0, b"")
             return self._send(200, blob, {_H_VERSION: version})
+        if self.path == "/usage":
+            return self._json(200, self.storage.disk_usage())
+        if self.path == "/backups":
+            return self._json(200, {"backups": self.storage.list_backups()})
         if self.path.startswith(_BLOB_PREFIX):
             try:
                 return self._send(200, self.storage.get_blob(self._block_id()))
@@ -125,6 +138,31 @@ class _Handler(BaseHTTPRequestHandler):
             except InvalidIdError:
                 return self._send(400, b"block_id invalido")
             return self._send(201, b"ok")
+        self._send(404)
+
+    def do_POST(self) -> None:
+        try:
+            body = self._body()
+        except _BodyError:
+            return
+        if self.path == "/backups":                  # exporta (cria backup server-side)
+            return self._json(201, self.storage.export())
+        if self.path == "/restore":                  # importa (restaura — DESTRUTIVO)
+            try:
+                name = json.loads(body or b"{}").get("name")
+            except (ValueError, AttributeError):
+                return self._send(400, b"json invalido")
+            if not name:
+                return self._send(400, b"name ausente")
+            try:
+                version = self.storage.restore(name)
+            except InvalidIdError:
+                return self._send(400, b"nome de backup invalido")
+            except NotFoundError:
+                return self._send(404, b"backup inexistente")
+            except StorageError:
+                return self._send(400, b"erro ao restaurar")
+            return self._json(200, {"version": version})
         self._send(404)
 
 

@@ -189,6 +189,119 @@ class SyncFoldersDialog(QDialog):
         self._reload()
 
 
+class ServerDialog(QDialog):
+    """Tela do **servidor**: uso de disco (barra) + **exportar/importar** backups.
+
+    Tudo via ``controller`` (``server_usage()``, ``list_backups()``, ``export_server()``,
+    ``import_server(name)``). As ações são server-side — o cliente só dispara: exportar cria
+    um ``.tar`` no servidor (mídia secundária); importar restaura (**destrutivo**) com
+    confirmação. As chamadas são síncronas (cursor de espera) — é uma ação administrativa."""
+
+    def __init__(self, controller, parent=None):
+        super().__init__(parent)
+        self.controller = controller
+        self.setWindowTitle("Servidor — disco e backups")
+        self.setStyleSheet(DARK_QSS)
+        self.resize(520, 400)
+        lay = QVBoxLayout(self)
+
+        lay.addWidget(QLabel("Uso de disco do servidor:"))
+        self.disk_label = QLabel("—")
+        lay.addWidget(self.disk_label)
+        self.disk_bar = QProgressBar()
+        self.disk_bar.setRange(0, 100)
+        lay.addWidget(self.disk_bar)
+
+        lay.addWidget(QLabel("Backups no servidor (mais recentes primeiro):"))
+        self.listw = QListWidget()
+        self.listw.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        lay.addWidget(self.listw, 1)
+
+        row = QHBoxLayout()
+        exp_b = QPushButton("Exportar agora")
+        exp_b.setToolTip("Cria um backup do cofre no servidor")
+        exp_b.clicked.connect(self._export)
+        res_b = QPushButton("Restaurar selecionado")
+        res_b.setToolTip("Substitui o cofre pelo backup escolhido (destrutivo)")
+        res_b.clicked.connect(self._restore)
+        ref_b = QPushButton("Atualizar")
+        ref_b.clicked.connect(self._reload)
+        close_b = QPushButton("Fechar")
+        close_b.clicked.connect(self.accept)
+        row.addWidget(exp_b)
+        row.addWidget(res_b)
+        row.addStretch(1)
+        row.addWidget(ref_b)
+        row.addWidget(close_b)
+        lay.addLayout(row)
+        self._reload()
+
+    def _reload(self) -> None:
+        self._reload_usage()
+        self._reload_backups()
+
+    def _reload_usage(self) -> None:
+        usage = self._call(self.controller.server_usage)
+        if usage is None:
+            return
+        total = usage.get("disk_total") or 0
+        used = usage.get("disk_used") or 0
+        pct = min(100, round(used * 100 / total)) if total else 0
+        self.disk_bar.setValue(pct)
+        self.disk_bar.setFormat(f"{pct}%")
+        vault = usage.get("vault_bytes")
+        extra = f"  ·  cofre: {_human_size(vault)}" if vault is not None else ""
+        self.disk_label.setText(
+            f"{_human_size(used)} de {_human_size(total)}  "
+            f"({_human_size(usage.get('disk_free'))} livres){extra}")
+
+    def _reload_backups(self) -> None:
+        self.listw.clear()
+        for b in self._call(self.controller.list_backups) or []:
+            label = f"{b['name']}   ({_human_size(b.get('size'))} · {_fmt_date(b.get('created'))})"
+            it = QListWidgetItem(label)
+            it.setData(Qt.ItemDataRole.UserRole, b["name"])
+            self.listw.addItem(it)
+
+    def _export(self) -> None:
+        info = self._call(self.controller.export_server)
+        if info is not None:
+            QMessageBox.information(self, "Exportado",
+                                    f"Backup criado no servidor:\n{info.get('name')}")
+            self._reload()
+
+    def _restore(self) -> None:
+        it = self.listw.currentItem()
+        if it is None:
+            self.disk_label.setText("Selecione um backup para restaurar.")
+            return
+        name = it.data(Qt.ItemDataRole.UserRole)
+        resp = QMessageBox.question(
+            self, "Restaurar backup",
+            f"Restaurar '{name}' no servidor?\n\n"
+            "Isto SUBSTITUI o cofre atual (blobs + manifesto) pelo backup — destrutivo "
+            "e irreversível para o estado atual.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+        if self._call(lambda: self.controller.import_server(name)) is not None:
+            QMessageBox.information(self, "Restaurado", f"Cofre restaurado de:\n{name}")
+            self._reload()
+
+    def _call(self, fn):
+        """Roda uma chamada (síncrona) ao servidor com cursor de espera; erro → diálogo."""
+        self.setCursor(Qt.CursorShape.WaitCursor)
+        try:
+            return fn()
+        except Exception as e:                            # rede/servidor indisponível etc.
+            QMessageBox.critical(self, "Erro", f"{type(e).__name__}: {e}")
+            return None
+        finally:
+            self.unsetCursor()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, controller, *, async_run: bool = True):
         super().__init__()
@@ -211,7 +324,15 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_body()
         self.setStatusBar(QStatusBar())
-        self._progress = QProgressBar()                  # rodapé: progresso das operações
+        # Rodapé (à direita): uso de disco do SERVIDOR + barra de progresso das operações.
+        self._disk_label = QLabel("")
+        self.statusBar().addPermanentWidget(self._disk_label)
+        self._disk_bar = QProgressBar()                  # uso do disco físico do servidor
+        self._disk_bar.setMaximumWidth(140)
+        self._disk_bar.setRange(0, 100)
+        self._disk_bar.setVisible(False)
+        self.statusBar().addPermanentWidget(self._disk_bar)
+        self._progress = QProgressBar()                  # progresso das operações
         self._progress.setMaximumWidth(240)
         self._progress.setVisible(False)
         self.statusBar().addPermanentWidget(self._progress)
@@ -241,6 +362,11 @@ class MainWindow(QMainWindow):
         folders_act.triggered.connect(self._open_folders_dialog)
         tb.addAction(folders_act)
         self._actions["folders"] = folders_act
+        server_act = QAction("Servidor…", self)
+        server_act.setToolTip("Uso de disco do servidor + exportar/importar backups")
+        server_act.triggered.connect(self._open_server_dialog)
+        tb.addAction(server_act)
+        self._actions["server"] = server_act
         tb.addSeparator()
         self.conn_label = QLabel(f"  {self._safe(self.controller.connection_label)}")
         tb.addWidget(self.conn_label)
@@ -288,6 +414,37 @@ class MainWindow(QMainWindow):
         self._states = list(states)
         self._rebuild_folder_tree()
         self._set_status_text(f"{len(self._states)} item(ns)")
+
+    def set_server_usage(self, usage: dict | None) -> None:
+        """Atualiza a barra de uso do disco do servidor no rodapé (None = oculta)."""
+        total = (usage or {}).get("disk_total") or 0
+        used = (usage or {}).get("disk_used") or 0
+        if not total:
+            self._disk_bar.setVisible(False)
+            self._disk_label.setText("")
+            return
+        pct = min(100, round(used * 100 / total))
+        self._disk_bar.setValue(pct)
+        self._disk_bar.setFormat(f"{pct}%")
+        self._disk_bar.setVisible(True)
+        self._disk_label.setText(f"Servidor: {_human_size(used)} de {_human_size(total)}")
+
+    def _collect(self) -> dict:
+        """Junta status + uso de disco do servidor (este best-effort) num só resultado,
+        para o worker entregar ambos de uma vez à thread da UI."""
+        states = self.controller.status()
+        usage = None
+        fn = getattr(self.controller, "server_usage", None)
+        if fn is not None:
+            try:
+                usage = fn()
+            except Exception:
+                usage = None                              # uso é informativo; nunca falha a ação
+        return {"states": states, "usage": usage}
+
+    def _apply_refresh(self, result: dict) -> None:
+        self.set_states(result["states"])
+        self.set_server_usage(result.get("usage"))
 
     def _rebuild_folder_tree(self) -> None:
         """(Re)constrói a árvore preservando expansão/seleção — inclusive ENTRE sessões.
@@ -434,7 +591,7 @@ class MainWindow(QMainWindow):
         if self._busy:                                     # uma operação por vez
             return
         if key == "atualizar":
-            self._submit(lambda report: self.controller.status(), self.set_states, "atualizado")
+            self._submit(lambda report: self._collect(), self._apply_refresh, "atualizado")
             return
         paths = self.selected_paths()
         if not paths:
@@ -447,9 +604,9 @@ class MainWindow(QMainWindow):
 
         def work(report):
             getattr(self.controller, key)(paths, progress=report)  # ação (pode demorar via Tor)
-            return self.controller.status()                # já devolve o novo estado
+            return self._collect()                         # novo estado + uso de disco
 
-        self._submit(work, self.set_states, f"{key}: {len(paths)} item(ns)")
+        self._submit(work, self._apply_refresh, f"{key}: {len(paths)} item(ns)")
 
     def _confirm_delete(self, paths: list[str]) -> bool:
         """Alerta de confirmação antes de apagar. Apagar grava um **tombstone** no
@@ -484,9 +641,9 @@ class MainWindow(QMainWindow):
 
         def work(report):
             self.controller.add(local_paths, progress=report)  # mapeia p/ vault path e envia
-            return self.controller.status()
+            return self._collect()
 
-        self._submit(work, self.set_states, f"adicionado(s) {len(local_paths)} arquivo(s)")
+        self._submit(work, self._apply_refresh, f"adicionado(s) {len(local_paths)} arquivo(s)")
 
     def _open_folders_dialog(self) -> None:
         """Abre a tela de pastas sincronizadas; ao fechar, atualiza a comparação."""
@@ -494,6 +651,13 @@ class MainWindow(QMainWindow):
             return
         SyncFoldersDialog(self.controller, self).exec()
         self._run("atualizar")                             # pastas podem ter mudado
+
+    def _open_server_dialog(self) -> None:
+        """Abre a tela do servidor (uso de disco + exportar/importar backups)."""
+        if self._busy:
+            return
+        ServerDialog(self.controller, self).exec()
+        self._run("atualizar")                             # restaurar muda o estado do cofre
 
     def _submit(self, fn, on_done, done_msg: str) -> None:
         """Executa ``fn`` fora da thread da UI e entrega o resultado a ``on_done`` na UI."""
