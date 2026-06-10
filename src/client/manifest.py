@@ -201,6 +201,19 @@ class VaultManifest:
 
     # --- construção -----------------------------------------------------
 
+    def __post_init__(self) -> None:
+        # Índice path -> FileManifest para busca O(1) (senão file_by_path varreria todos
+        # os arquivos a cada chamada → O(n²) num send_many grande). self.files só ganha
+        # entradas — tombstone não remove e path nunca muda —, então basta reconstruir na
+        # criação e manter incrementalmente em record_version. Não é campo do dataclass:
+        # fica fora de igualdade/serialização.
+        self._reindex()
+
+    def _reindex(self) -> None:
+        self._path_index: dict[str, FileManifest] = {
+            fm.path: fm for fm in self.files.values()
+        }
+
     @classmethod
     def new(cls, vault_id: str, salt: bytes, *, kek_epoch: int = 1) -> "VaultManifest":
         return cls(vault_id=vault_id, argon2_salt=_b64e(salt), kek_epoch=kek_epoch)
@@ -212,10 +225,8 @@ class VaultManifest:
     # --- consultas ------------------------------------------------------
 
     def file_by_path(self, path: str) -> FileManifest | None:
-        for fm in self.files.values():
-            if fm.path == path:
-                return fm
-        return None
+        """FileManifest por *path*, ou ``None``. O(1) via ``_path_index``."""
+        return self._path_index.get(path)
 
     def file_key(self, fm: FileManifest, kek: bytes) -> bytes:
         """Desembrulha a FK do arquivo com a KEK."""
@@ -238,6 +249,7 @@ class VaultManifest:
                 wrapped_by_epoch=self.kek_epoch, versions=[version], mode=mode,
             )
             self.files[fm.file_id] = fm
+            self._path_index[fm.path] = fm
         else:
             fm.versions.append(version)
             if mode is not None:

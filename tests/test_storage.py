@@ -148,6 +148,26 @@ def test_restore_nome_invalido_ou_inexistente(store):
         store.restore("unuser-backup-20200101-000000.tar")
 
 
+def test_restore_recusa_tar_com_membro_nao_regular(store):
+    """Defesa em profundidade: um membro symlink (ataque clássico de extração) é recusado
+    antes de qualquer extração — mesmo no Python 3.11, sem o filter='data'."""
+    import tarfile
+
+    name = "unuser-backup-20300101-000000.tar"
+    with tarfile.open(store.backups_dir / name, "w") as tar:
+        for d in ("blobs", "manifest"):           # diretórios legítimos do backup
+            info = tarfile.TarInfo(d)
+            info.type = tarfile.DIRTYPE
+            tar.addfile(info)
+        link = tarfile.TarInfo("blobs/evil")       # ...e um symlink para fora
+        link.type = tarfile.SYMTYPE
+        link.linkname = "/etc/passwd"
+        tar.addfile(link)
+
+    with pytest.raises(StorageError):
+        store.restore(name)
+
+
 def test_backups_dir_configuravel(tmp_path):
     """backups_dir aponta p/ mídia secundária (UNUSERD_BACKUPS): o .tar nasce lá, não no storage."""
     media = tmp_path / "midia-secundaria"

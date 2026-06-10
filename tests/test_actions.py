@@ -167,6 +167,30 @@ def test_blocos_iguais_em_arquivos_diferentes_nao_corrompem(tmp_path, keyring):
         assert B.session.receive("Documentos/b.txt").read_bytes() == data
 
 
+def test_receive_falho_nao_corrompe_arquivo_anterior(tmp_path, keyring):
+    """receive é atômico: se falhar no meio (bloco indisponível), o arquivo bom anterior
+    fica intacto e nenhum .part é deixado para trás."""
+    store = BlindStorage(tmp_path / "vault")
+    with running(store) as port:
+        A = Machine(tmp_path / "A", port, keyring, "pc-A")
+        B = Machine(tmp_path / "B", port, keyring, "pc-B")
+
+        A.session.send(A.write("doc.txt", b"versao boa " * 300))
+        B.session.receive("Documentos/doc.txt")
+        assert (B.root / "doc.txt").read_bytes() == b"versao boa " * 300
+
+        # v2 no servidor, mas com os blobs zerados → o get_blob do receive falha no meio.
+        A.session.send(A.write("doc.txt", b"versao nova bem diferente " * 300))
+        for blob in store.blobs_dir.glob("*.blob"):
+            blob.unlink()
+
+        with pytest.raises(Exception):
+            B.session.receive("Documentos/doc.txt")
+
+        assert (B.root / "doc.txt").read_bytes() == b"versao boa " * 300   # intacto
+        assert not list(B.root.glob(".*.part"))                           # sem lixo
+
+
 def test_vault_path_for_mapeia_inverso(tmp_path):
     """vault_path_for é o inverso de local_path: caminho local → vault path (ou None)."""
     root = tmp_path / "Documentos"

@@ -149,7 +149,10 @@ class VaultClient:
                  headers: dict | None = None):
         with self._lock:
             # Reusa a conexão; se ela estiver morta (servidor fechou, idle expirou,
-            # pipe quebrado), reconecta UMA vez e repete o request.
+            # pipe quebrado), reconecta UMA vez e repete o request. O replay é seguro
+            # porque os endpoints mutáveis toleram repetição: PUT /blob é idempotente
+            # (endereçado por conteúdo) e PUT /manifest é protegido por CAS — se a 1ª
+            # tentativa chegou a aplicar, o replay cai em 409 e quem chamou recarrega.
             for attempt in (1, 2):
                 if self._cached is None:
                     self._cached = self._new_conn()

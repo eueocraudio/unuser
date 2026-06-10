@@ -209,30 +209,48 @@ class VaultSession:
     # --- receber (ação 2) ----------------------------------------------------
 
     def receive(self, vault_path: str) -> Path:
-        """Baixa, verifica a integridade, grava localmente e atualiza a base. Devolve o path."""
+        """Baixa, verifica a integridade, grava localmente e atualiza a base. Devolve o path.
+
+        Streaming (simétrico ao envio): decifra/grava um bloco por vez num arquivo
+        temporário e hasheia incrementalmente — não segura o arquivo inteiro em memória.
+        Só publica o destino final por **rename atômico** depois que o ``content_hash``
+        bater; em erro (hash divergente ou rede), o ``.part`` é removido e o arquivo bom
+        anterior fica intacto.
+        """
         _version, vault = self._load()
         fm = vault.file_by_path(vault_path)
         if fm is None or fm.deleted:
             raise NothingToReceive(vault_path)
         fk = vault.file_key(fm, self.keyring.kek)
 
-        parts: list[bytes] = []
-        block_refs: list[tuple[str, int]] = []
-        for bid in fm.current.blocks:
-            plain = crypto.decrypt(fk, self.client.get_blob(bid))
-            parts.append(plain)
-            block_refs.append((bid, len(plain)))
-        data = b"".join(parts)
-        if crypto.content_hash(data) != fm.current.hash:
-            raise IntegrityError(f"{vault_path}: hash não confere após remontar")
-
         dest = self.resolver.local_path(vault_path)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(data)
+        tmp = dest.with_name(f".{dest.name}.{os.urandom(8).hex()}.part")
+
+        hasher = crypto.content_hasher()
+        block_refs: list[tuple[str, int]] = []
+        size = 0
+        try:
+            with open(tmp, "wb") as f:
+                for bid in fm.current.blocks:
+                    plain = crypto.decrypt(fk, self.client.get_blob(bid))
+                    hasher.update(plain)
+                    f.write(plain)
+                    block_refs.append((bid, len(plain)))
+                    size += len(plain)
+            if "blake3:" + hasher.hexdigest() != fm.current.hash:
+                raise IntegrityError(f"{vault_path}: hash não confere após remontar")
+            os.replace(tmp, dest)                     # publica o destino atomicamente
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
         _apply_mode(dest, fm.mode)                    # mode é por arquivo (FileManifest)
 
         self.index.upsert_file(FileRecord(
-            file_id=fm.file_id, path=vault_path, size=fm.current.size or len(data),
+            file_id=fm.file_id, path=vault_path, size=fm.current.size or size,
             mtime=dest.stat().st_mtime, hash=fm.current.hash, mode=fm.mode,
         ))
         self.index.set_blocks(fm.file_id, block_refs)
@@ -254,10 +272,11 @@ class VaultSession:
             return True
 
         self._apply_with_retry(apply)
+        dest = self.resolver.local_path(vault_path)
         try:
-            dest = self.resolver.local_path(vault_path)
             if dest.exists():
                 dest.unlink()
-        except KeyError:
-            pass                                      # sem mapeamento local: nada a apagar
+        except OSError:
+            pass                                      # best-effort: falha ao remover o
+                                                      # local não desfaz o tombstone gravado
         self.index.remove_file(vault_path)
