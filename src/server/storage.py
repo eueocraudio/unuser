@@ -57,11 +57,15 @@ def _atomic_write(path: Path, data: bytes) -> None:
 
 
 def _safe_extract(tar, dest: Path) -> None:
-    """Extrai recusando membros que escapem de ``dest`` (defesa em profundidade — o tar é
-    gerado por nós, mas nunca confiamos no que entra)."""
+    """Extrai recusando membros que escapem de ``dest`` **ou** que não sejam arquivo/
+    diretório comum (defesa em profundidade — o tar é gerado por nós, mas nunca confiamos
+    no que entra). Rejeitar symlink/hardlink/dispositivo barra o ataque clássico de
+    extração via symlink mesmo no Python 3.11, que não tem o ``filter='data'`` abaixo."""
     dest = dest.resolve()
     base = str(dest) + os.sep
     for member in tar.getmembers():
+        if not (member.isfile() or member.isdir()):
+            raise StorageError(f"membro de tar não-regular: {member.name!r}")
         target = (dest / member.name).resolve()
         if target != dest and not str(target).startswith(base):
             raise StorageError(f"caminho de tar inseguro: {member.name!r}")

@@ -22,7 +22,7 @@ GUI repaginada: tema escuro + Explorer de duas áreas + ícones + adicionar arqu
 persistência do estado da árvore; **porta padrão 8080**, **mTLS auto-gerado no `postinst`**,
 **storage configurável** (`UNUSERD_STORAGE`), **keep-alive no transporte** (corrige timeout
 em arquivos grandes), **chunks de 512 KiB**, **licença MIT** + `install-gui-client.sh`).
-Projeto em **v1.3.0** (open source, MIT). ~183 testes passando. Executáveis
+Projeto em **v1.3.0** (open source, MIT). ~180+ testes passando. Executáveis
 `unuser` (cliente) e `unuserd` (servidor); `.deb` de ambos em `packaging/`; scripts de
 conveniência em `src/server/run.sh`, `src/client/run.sh`, `src/client/run-gui.sh`.
 
@@ -344,7 +344,8 @@ Conveniência para rodar sem decorar flags (acham o binário do `.venv` ou do PA
 Toda mudança entra na `main` por **branch → PR → squash-merge** (ver histórico: cada
 commit da `main` é um PR `(#N)`). Não commite direto na `main`. Releases saem com `gh`
 publicando os assets (`.deb` de `dist/`, PDFs de `doc/`, `SHA256SUMS.txt`); o `CHANGELOG.md`
-acompanha cada versão. Bump de versão: `pyproject.toml` (`version`) + `CHANGELOG.md`.
+acompanha cada versão. Bump de versão: `pyproject.toml` (`version`) + `CHANGELOG.md`
++ a linha de **Estado** no topo deste `CLAUDE.md` (versão e contagem de testes).
 
 ## Roadmap
 
