@@ -4,6 +4,23 @@ Todas as mudanças notáveis do **unuser**. Formato baseado em
 [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/); versionamento
 [SemVer](https://semver.org/lang/pt-BR/).
 
+## [1.3.1] — 2026-06-09
+
+### Corrigido / Refinado
+- **Cliente — `receive` em streaming e atômico**: a remontagem decifra/grava um bloco por
+  vez num `.part`, com hash incremental (não segura o arquivo inteiro em memória —
+  simétrico ao envio, que já era streaming), e só publica o destino por **rename atômico**
+  depois que o `content_hash` confere. Se falhar no meio (hash divergente ou bloco
+  indisponível), o `.part` é removido e o arquivo bom anterior fica **intacto**.
+- **Servidor — endurecimento da restauração de backup**: `_safe_extract` agora recusa
+  membros de `.tar` **não-regulares** (symlink/hardlink/dispositivo) antes de extrair,
+  fechando o ataque clássico de extração via symlink **mesmo no Python 3.11** (que não tem
+  o `filter='data'`). Defesa em profundidade — o `.tar` é gerado pelo próprio servidor.
+- **Cliente — `file_by_path` O(1)**: o manifesto mantém um índice `path → arquivo`, evitando
+  a varredura linear que tornava um `send_many` grande O(n²).
+
+[1.3.1]: https://github.com/eueocraudio/unuser/releases/tag/v1.3.1
+
 ## [1.3.0] — 2026-06-07
 
 ### Adicionado
